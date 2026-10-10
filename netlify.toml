@@ -1,8 +1,0 @@
-# AppKredinova en Netlify.
-# - La página está en la carpeta web/ (sin compilación).
-# - netlify/edge-functions/api.js hace de puente con Google Apps Script; su dirección se lee de la
-#   variable de entorno KREDINOVA_API (Site configuration → Environment variables).
-# Importante: las funciones solo se publican desde GitHub o con Netlify CLI (no con "arrastrar y soltar").
-[build]
-  publish = "web"
-  edge_functions = "netlify/edge-functions"
