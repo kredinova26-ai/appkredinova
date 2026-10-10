@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "ni.kredinova_app",
+        "sha256_cert_fingerprints": ["8F:CD:42:07:90:82:C8:A7:1F:16:6C:CD:04:72:75:4F:E6:D8:85:7B:A9:7A:53:CC:84:A6:B2:CD:2B:52:B7:FF"]
+      }
+    }]
