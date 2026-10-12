@@ -282,6 +282,8 @@ table.cmp td,table.cmp th{white-space:normal}
 .doc.d-compacto table.d-t th.c,.doc.d-compacto table.d-t td.c{text-align:center}
 .doc.d-compacto .d-firmas{margin:30px 0 0;gap:18px}
 .doc .d-aviso{border:1px solid #9A5A06;background:#FCEFD9;color:#5a3a04;font-size:8.5pt;font-weight:600;padding:5px 8px;margin:0 0 6px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.doc .d-est{display:inline-block;padding:1px 6px;border-radius:8px;font-size:7.5pt;font-weight:700;border:1px solid #999;-webkit-print-color-adjust:exact;print-color-adjust:exact}.doc .d-est-vencido{background:#fde2e2;color:#9b1c1c;border-color:#e0a0a0}.doc .d-est-mora{background:#fcefd9;color:#7a4a05;border-color:#e3c48a}.doc .d-est-aldia{background:#e1f0da;color:#17692c;border-color:#a9cf98}
+.doc tr.d-grupo th{background:#eef3ec;text-align:left;font-size:8.5pt}
 .doc .d-pag2{break-before:page;page-break-before:always}
 .doc .d-sec{break-after:avoid;page-break-after:avoid}
 .doc .d-sec{background:#E1F0DA;font-weight:700;padding:3px 6px;margin:8px 0 0;border:1px solid #999;border-bottom:0;text-transform:uppercase;font-size:8.8pt}
@@ -1523,7 +1525,7 @@ function vistaPaso1(sol,cidNueva){
     ${seg('tipoCredito','Tipo de crédito',TIPOS_CRED,ro)}${seg('sector','Sector económico',SECTORES.filter(([k])=>opcionesCredito(SOLD.tipoCredito).sectores.includes(k)),ro)}${seg('destino','Destino del crédito',DESTINOS.filter(([k])=>opcionesCredito(SOLD.tipoCredito).destinos.includes(k)),ro)}
     <div class="fgrid">${fi('montoSolicitado','Monto solicitado (C$)',{ro,num:1})}${fi('frecuencia','Frecuencia',{ro,opts:frecuenciasPara(SOLD.frecuencia).map(m=>[m,MOD[m].label])})}
     ${fi('plazoMeses','Plazo (meses)',{ro,num:1})}<div class="field"><label>Cuota estimada</label><div class="calc" id="sCuota">—</div></div>
-    <div class="field"><label>Día de pago</label><div class="calc" id="sDia">—</div></div><div class="field"><label for="sf-primerPagoDeseado">Primer fecha de pago</label><input type="date" id="sf-primerPagoDeseado" data-sf="primerPagoDeseado" value="${esc(SOLD.primerPagoDeseado||'')}" min="${addDays(hoyS(),1)}" ${ro}>
+    <div class="field"><label>Día de pago</label><div class="calc" id="sDia">—</div></div><div class="field"><label for="sf-primerPagoDeseado">Primer fecha de pago</label><input type="date" id="sf-primerPagoDeseado" data-sf="primerPagoDeseado" data-pp="sol" value="${esc(SOLD.primerPagoDeseado||(MOD[SOLD.frecuencia]?fechasCuotas(hoyS(),SOLD.frecuencia,1,calendarioActual())[0]:''))}" min="${addDays(hoyS(),1)}" ${ro}>
       <span class="small muted" id="sPrimer">—</span></div></div>
     ${seg('lugarCobro','Lugar de cobro',LUGARES,ro)}
   </section>
@@ -1560,7 +1562,8 @@ function actualizarProgreso(){
   const falt=faltantesSolicitud(SOLD);const total=51;const pct=Math.max(0,Math.min(100,Math.round((1-falt.length/total)*100)));
   const sol=SOLID&&!SOLID.startsWith('nueva')?S.solicitudes[SOLID]:null;const editable=!sol||['BORRADOR','COMPLETA'].includes(sol.estado);
   const ce=cuotaEstimada(SOLD);if($('#sCuota'))$('#sCuota').textContent=ce?fmt(ce.cuota)+` (${ce.n} cuotas)`+(ce.primera!==ce.cuota?` · primera ${fmt(ce.primera)}`:''):'—';if($('#sDia'))$('#sDia').textContent=ce?ce.dia[0].toUpperCase()+ce.dia.slice(1):'—';if($('#sPrimer')){const nat=ce?fechasCuotas(hoyS(),SOLD.frecuencia,1,calendarioActual())[0]:'';const aj=ce&&SOLD.primerPagoDeseado?ajustePrimerPago(hoyS(),SOLD.frecuencia,calendarioActual(),SOLD.primerPagoDeseado,SOLD.montoSolicitado,Number(CONFIG.interesDefault||15)/100,CONFIG.ajusteInteresPrimeraCuota||'si'):null;
-    $('#sPrimer').textContent=!ce?'':!SOLD.primerPagoDeseado?`Normal: ${fF(nat)}. Cámbiala si el cliente lo pide.`:aj.dias?`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'} (normal ${fF(nat)})${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés (${fmt(aj.interesExtra)}) en la primera cuota`:''}`:'Es la fecha normal.'}
+    const inpP=$('#sf-primerPagoDeseado');if(inpP&&!SOLD.primerPagoDeseado&&nat&&inpP.value!==nat&&document.activeElement!==inpP)inpP.value=nat;
+    $('#sPrimer').textContent=!ce?'':!SOLD.primerPagoDeseado||!aj.dias?'Cámbiala si el cliente lo pide.':`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'}${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés (${fmt(aj.interesExtra)}) en la primera cuota`:''}`}
   ['buenas','regulares','malas'].forEach(k=>{const el=$(`[data-vtot="${k}"]`);if(el)el.textContent=n2((SOLD.ventas?.[k]||[]).reduce((a,x)=>a+(Number(x)||0),0))});
   if($('#vSem'))$('#vSem').textContent=n2(totalVentasSemana(SOLD));
   // El panel se arma una sola vez y luego solo se actualiza, para no perder clics mientras se escribe
@@ -1632,8 +1635,8 @@ function vistaPaso2(sol){
     <div class="fgrid">${inp('monto','Monto aprobado (C$)',1)}<div class="field"><label for="ap-frecuencia">Frecuencia</label><select id="ap-frecuencia" data-ap="frecuencia" ${ro?'disabled':''}>${frecuenciasPara(a.frecuencia).map(m=>`<option value="${m}" ${a.frecuencia===m?'selected':''}>${MOD[m].label}</option>`).join('')}</select></div>
     ${inp('meses','Plazo (meses)',1)}${campoCuotas('ap',a.nCuotas,cuotasDe(a.meses,a.frecuencia),a.manual,!ro)}${inp('interes','Interés mensual (%)',1)}${inp('tasaMora','Mora mensual (%)',1)}
     ${inp('fechaDesembolso','Fecha prevista de desembolso',0,'date')}
-    <div class="field"><label for="ap-primerPagoPedido">Primer pago (a petición del cliente)</label><input id="ap-primerPagoPedido" type="date" data-ap="primerPagoPedido" value="${esc(a.primerPagoPedido||'')}" ${ro?'disabled':''}>
-      <span class="small muted">${(()=>{if(!MOD[a.frecuencia])return '';const b=sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso);const nat=fechasCuotas(b,a.frecuencia,1,calendarioActual())[0];if(!a.primerPagoPedido)return 'Vacío = fecha normal ('+fF(nat)+').';const aj=ajustePrimerPago(b,a.frecuencia,calendarioActual(),a.primerPagoPedido,a.monto,Number(a.interes)/100,CONFIG.ajusteInteresPrimeraCuota||'si');return a.primerPagoPedido<=b?'Debe ser posterior al desembolso.':`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'} (normal ${fF(nat)})${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés: ${fmt(aj.interesExtra)} en la primera cuota`:''}.`})()}</span></div>
+    <div class="field"><label for="ap-primerPagoPedido">Primer pago (a petición del cliente)</label><input id="ap-primerPagoPedido" type="date" data-ap="primerPagoPedido" value="${esc(a.primerPagoPedido||(MOD[a.frecuencia]?fechasCuotas(sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso),a.frecuencia,1,calendarioActual())[0]:''))}" ${ro?'disabled':''}>
+      <span class="small muted">${(()=>{if(!MOD[a.frecuencia])return '';const b=sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso);const nat=fechasCuotas(b,a.frecuencia,1,calendarioActual())[0];if(!a.primerPagoPedido)return 'Cámbiala si el cliente lo pide.';const aj=ajustePrimerPago(b,a.frecuencia,calendarioActual(),a.primerPagoPedido,a.monto,Number(a.interes)/100,CONFIG.ajusteInteresPrimeraCuota||'si');return a.primerPagoPedido<=b?'Debe ser posterior al desembolso.':!aj.dias?'Cámbiala si el cliente lo pide.':`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'}${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés: ${fmt(aj.interesExtra)} en la primera cuota`:''}.`})()}</span></div>
     <div class="field"><label for="ap-destino">Destino</label><select id="ap-destino" data-ap="destino" ${ro?'disabled':''}>${DESTINOS.filter(([k])=>opcionesCredito(d.tipoCredito).destinos.includes(k)||k===a.destino).map(([k,t])=>`<option value="${k}" ${a.destino===k?'selected':''}>${t}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-cob">Gestor / cobrador asignado</label><select id="ap-cob" data-ap="cobradorId" ${ro?'disabled':''}><option value="">Sin asignar</option>${cobradores().map(u=>`<option value="${esc(u)}" ${u===a.cobradorId?'selected':''}>${esc(quien(u))}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-obs">Observación</label><input id="ap-obs" data-ap="observacion" value="${esc(a.observacion||'')}" ${ro?'disabled':''}></div></div>
@@ -1831,6 +1834,7 @@ function docPlan({nombreCli,cedula,codigoCli,nCredito,fechaDes,cuotas,frecuencia
 }
 // Mientras no se desembolsa, el plan es una proyección: nunca empieza en una fecha pasada (se calcula desde hoy o desde la fecha prevista)
 const fechaBasePlan=f=>!f||f<hoyS()?hoyS():f;
+const sol0Base=a=>{const so=S.solicitudes?.[a.id];return so&&so.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso)};
 function planDeSolicitud(sol){
   const ap=sol.aprobacion;const p=sol.prestamoId?S.prestamos[sol.prestamoId]:null;
   const base=fechaBasePlan(ap.fechaDesembolso);
@@ -2337,24 +2341,28 @@ function docHojaRuta(id,fecha){
 }
 
 /* ============ gestión de cobro: clientes atrasados, fiadores y seguimiento ============ */
-const GF={min:1,ruta:'',gestor:'',soloFiador:false,soloPromesas:false,q:''};
+const GF={est:'atrasados',min:1,ruta:'',gestor:'',soloFiador:false,soloPromesas:false,q:''};
 const TIPOS_G={LLAMADA:'Llamada',VISITA:'Visita',WHATSAPP:'WhatsApp',AVISO_FIADOR:'Aviso al fiador',PROMESA:'Promesa de pago',OTRO:'Otro'};
 const CONTACTOS_G={CLIENTE:'Cliente',FIADOR:'Fiador',CONYUGE:'Cónyuge',REFERENCIA:'Referencia'};
 const nomPersona=o=>o?`${o.nombres||o.nombre||''} ${o.apellidos||''}`.trim():'';
 const telWa=t=>{let x=String(t||'').replace(/\D/g,'');if(x.length===8)x='505'+x;return x};
 function gestionesDe(pid){return Object.values(S.gestiones||{}).filter(g=>g.prestamoId===pid).sort((a,b)=>String(b.creado).localeCompare(String(a.creado)))}
+const EST_COBRO={vencido:['Vencido','p-late'],mora:['En mora','p-due'],aldia:['Al día','p-ok']},ORDEN_EST={vencido:0,mora:1,aldia:2};
 function casosCobro(){
   const hoy=hoyS();
-  return PV().map(p=>{const r=resumen(p,hoy);if(r.estado!=='mora')return null;const d=desgloseCli(p,hoy),c=cliente(p.clienteId);
+  return PV().map(p=>{const r=resumen(p,hoy);if(r.estado==='cancelado')return null;const d=desgloseCli(p,hoy),c=cliente(p.clienteId);
+    // Estado de cobro: Vencido = ya pasó la fecha de la última cuota y aún debe · En mora = tiene cuotas atrasadas · Al día = sin atrasos
+    const ultima=p.cuotas[p.cuotas.length-1]?.fecha||'',est=r.estado!=='mora'?'aldia':ultima&&ultima<hoy?'vencido':'mora';
     const pagos=Object.values(S.pagos).filter(x=>x.prestamoId===p.id&&!x.anulado).sort((a,b)=>(b.fecha+b.creado).localeCompare(a.fecha+a.creado));
     const gs=gestionesDe(p.id),prom=gs.find(g=>g.promesaFecha);
     const promVencida=prom&&prom.promesaFecha<hoy&&!pagos.some(x=>x.fecha>=prom.fecha);
-    return {p,c,r,d,dias:d.diasMora,exigible:r2(d.atrasado+d.mora+d.cuotaDia),ultPago:pagos[0]||null,gs,prom,promVencida,g:p.garantes||null,ruta:rutaDe(c)};
-  }).filter(Boolean).sort((a,b)=>b.dias-a.dias||b.exigible-a.exigible);
+    const prox=p.cuotas.find(q=>q.fecha>=hoy&&r2(q.total-q.pagado)>0.004);
+    return {p,c,r,d,est,ultima,prox,dias:d.diasMora,exigible:r2(d.atrasado+d.mora+d.cuotaDia),ultPago:pagos[0]||null,gs,prom,promVencida,g:p.garantes||null,ruta:rutaDe(c)};
+  }).filter(Boolean).sort((a,b)=>ORDEN_EST[a.est]-ORDEN_EST[b.est]||b.dias-a.dias||b.exigible-a.exigible);
 }
 function filtrarCasos(cs){
   const q=GF.q.toLowerCase();
-  return cs.filter(x=>x.dias>=GF.min).filter(x=>!GF.ruta||(GF.ruta==='sin'?!x.ruta:x.ruta?.id===GF.ruta)).filter(x=>!GF.gestor||(x.p.cobradorId||'__sin')===GF.gestor)
+  return cs.filter(x=>GF.est==='todos'||(GF.est==='atrasados'?x.est!=='aldia':x.est===GF.est)).filter(x=>x.est==='aldia'||x.dias>=GF.min).filter(x=>!GF.ruta||(GF.ruta==='sin'?!x.ruta:x.ruta?.id===GF.ruta)).filter(x=>!GF.gestor||(x.p.cobradorId||'__sin')===GF.gestor)
     .filter(x=>!GF.soloFiador||x.g?.fiador?.nombres).filter(x=>!GF.soloPromesas||x.promVencida)
     .filter(x=>!q||[nombre(x.c),x.c?.cedula,x.c?.telefono,nomPersona(x.g?.fiador),x.g?.fiador?.cedula].join(' ').toLowerCase().includes(q));
 }
@@ -2371,7 +2379,8 @@ VIEWS.gestion=()=>{
   return `${topbar('Gestión de cobro','<button class="btn sm" data-printgest>Imprimir reporte</button>')}
   <div class="stack">
   <section class="panel pad stack">
-    <div class="chips" role="group" aria-label="Días de atraso">${[[1,'Todos los atrasados'],[8,'Más de 7 días'],[31,'Más de 30'],[61,'Más de 60'],[91,'Más de 90']].map(([v,l])=>`<button class="chip" data-gmin="${v}" aria-pressed="${GF.min===v}">${l}</button>`).join('')}</div>
+    <div class="chips" role="group" aria-label="Estado">${[['atrasados','En mora y vencidos'],['vencido','Vencidos'],['mora','En mora'],['aldia','Al día'],['todos','Todos']].map(([v,l])=>`<button class="chip" data-gest="${v}" aria-pressed="${GF.est===v}">${l} · ${v==='todos'?todos.length:v==='atrasados'?todos.filter(x=>x.est!=='aldia').length:todos.filter(x=>x.est===v).length}</button>`).join('')}</div>
+    ${GF.est==='aldia'?'':`<div class="chips" role="group" aria-label="Días de atraso">${[[1,'Cualquier atraso'],[8,'Más de 7 días'],[31,'Más de 30'],[61,'Más de 60'],[91,'Más de 90']].map(([v,l])=>`<button class="chip" data-gmin="${v}" aria-pressed="${GF.min===v}">${l}</button>`).join('')}</div>`}
     <div class="fgrid">
       <div class="field"><label for="gf-q">Buscar</label><input id="gf-q" data-gq value="${esc(GF.q)}" placeholder="Cliente, cédula, teléfono o fiador"></div>
       ${rutasVista().length?`<div class="field"><label for="gf-r">Ruta</label><select id="gf-r" data-gf="ruta"><option value="">Todas</option>${rutasVista().map(r=>`<option value="${r.id}" ${GF.ruta===r.id?'selected':''}>${esc(r.nombre)}</option>`).join('')}<option value="sin" ${GF.ruta==='sin'?'selected':''}>Sin ruta</option></select></div>`:''}
@@ -2391,7 +2400,7 @@ function tarjetaCaso(x){
   return `<section class="panel caso">
   <div class="pad spread caso-h"><div><a class="who" href="#/prestamo/${x.p.id}" style="font-size:1.05rem">${esc(nombre(c))}</a>
     <div class="meta">${esc(c.cedula||'')} · ${esc([c.barrio,c.direccion].filter(Boolean).join(' · '))}${x.ruta?' · Ruta '+esc(x.ruta.nombre):''}${x.p.cobradorId?' · Gestor '+esc(nomU(x.p.cobradorId)):''}</div></div>
-    <div style="text-align:right"><span class="pill ${tramo}">${x.dias} días de atraso</span><div class="amt" style="margin-top:4px">${fmt(x.exigible)}</div><div class="meta">vencido + mora · saldo total ${fmt0(x.r.saldo+x.r.mora)}</div></div></div>
+    <div style="text-align:right"><span class="pill ${EST_COBRO[x.est][1]}">${EST_COBRO[x.est][0]}</span>${x.est==='aldia'?'':` <span class="pill ${tramo}">${x.dias} días · ${x.r.vencidas} ${x.r.vencidas===1?'cuota atrasada':'cuotas atrasadas'}</span>`}<div class="amt" style="margin-top:4px">${x.est==='aldia'?fmt(x.prox?r2(x.prox.total-x.prox.pagado):0):fmt(x.exigible)}</div><div class="meta">${x.est==='aldia'?(x.prox?'próxima cuota '+fF(x.prox.fecha):'sin cuotas pendientes'):x.est==='vencido'?'venció el '+fF(x.ultima)+' · vencido + mora':'vencido + mora'} · saldo total ${fmt0(x.r.saldo+x.r.mora)}</div></div></div>
   <div class="caso-g">
     <div><h4>Cliente</h4><div class="small">${esc(c.telefono||'—')}</div><div class="row">${tel(c.telefono,'Cliente','cliente','cliente')}</div>
       <div class="small muted" style="margin-top:6px">Último pago: ${x.ultPago?`${fF(x.ultPago.fecha)} · ${fmt(x.ultPago.monto)}`:'ninguno'} · ${x.r.vencidas} cuotas vencidas</div></div>
@@ -2425,14 +2434,22 @@ function modalHistorialGestion(pid){
   <div class="list">${gs.map(g=>`<div class="item"><div><div class="who">${TIPOS_G[g.tipo]||g.tipo} · ${CONTACTOS_G[g.contacto]||''}</div><div class="meta">${esc(g.resultado)}${g.promesaFecha?` · promesa ${fmt(g.promesaMonto)} para el ${fF(g.promesaFecha)}`:''}</div></div><div class="meta" style="text-align:right">${fF(g.fecha)}<br>${esc(nomU(g.creadoPor))}</div></div>`).join('')}</div>`);
 }
 function docGestion(){
-  const cs=filtrarCasos(casosCobro());const tot=r2(cs.reduce((t,x)=>t+x.exigible,0));
-  return `<div class="doc">${encabezadoDoc('REPORTE DE GESTIÓN DE COBRO',fLargo(hoyS())+(GF.min>1?' · más de '+(GF.min-1)+' días':''))}
-  <table class="d-t d-plan"><thead><tr><th>Cliente</th><th>Teléfono</th><th>Días</th><th>Vencido + mora</th><th>Fiador</th><th>Tel. fiador</th><th>Última gestión / promesa</th></tr></thead><tbody>
-  ${cs.map(x=>{const f=x.g?.fiador,ug=x.gs[0];return `<tr><td><b>${esc(nombre(x.c))}</b><br><small>${esc(x.c?.cedula||'')} · ${esc(x.c?.barrio||'')}</small></td><td>${esc(x.c?.telefono||'')}</td><td class="num">${x.dias}</td><td class="num">${n2(x.exigible)}</td>
-    <td>${f?.nombres?esc(nomPersona(f))+(f.parentesco?`<br><small>${esc(f.parentesco)}</small>`:''):'<small>Sin fiador</small>'}</td><td>${esc(f?.telefono||'')}</td>
-    <td><small>${ug?esc(fF(ug.fecha)+' '+(TIPOS_G[ug.tipo]||'')+': '+ug.resultado):'Sin gestión'}${x.prom?`<br>Promesa ${n2(x.prom.promesaMonto)} · ${fF(x.prom.promesaFecha)}${x.promVencida?' (incumplida)':''}`:''}</small></td></tr>`}).join('')||'<tr><td colspan="7">Sin casos.</td></tr>'}</tbody>
-  <tfoot><tr><th colspan="3">${cs.length} casos</th><th class="num">${n2(tot)}</th><th colspan="3"></th></tr></tfoot></table>
-  <p class="small">Generado el ${esc(fHoraCorta(new Date().toISOString()))} por ${esc(ME.name||ME.id)}.</p></div>`;
+  const cs=filtrarCasos(casosCobro());const tot=r2(cs.filter(x=>x.est!=='aldia').reduce((t,x)=>t+x.exigible,0));
+  const cnt=e=>cs.filter(x=>x.est===e).length,etFiltro={atrasados:'En mora y vencidos',vencido:'Vencidos',mora:'En mora',aldia:'Al día',todos:'Todos los clientes'}[GF.est];
+  // Agrupado por estado: primero vencidos, luego en mora y al final al día
+  const grupos=['vencido','mora','aldia'].map(e=>[e,cs.filter(x=>x.est===e)]).filter(([e,l])=>l.length);
+  const fila=x=>{const f=x.g?.fiador,ug=x.gs[0];return `<tr><td><span class="d-est d-est-${x.est}">${EST_COBRO[x.est][0]}</span></td><td><b>${esc(nombre(x.c))}</b><br><small>${esc(x.c?.cedula||'')} · ${esc(x.c?.telefono||'')}${x.c?.barrio?' · '+esc(x.c.barrio):''}</small></td>
+    <td class="num">${x.est==='aldia'?'—':x.dias}</td><td class="num">${x.r.vencidas?`<b>${x.r.vencidas}</b><small> de ${x.p.cuotas.length}</small>`:'0'}</td>
+    <td class="num">${x.est==='aldia'?(x.prox?`<small>Próx. ${fF(x.prox.fecha)}</small><br>`+n2(r2(x.prox.total-x.prox.pagado)):'—'):n2(x.exigible)}</td>
+    <td>${x.ultPago?`${fF(x.ultPago.fecha)}<br><small>${n2(x.ultPago.monto)} · hace ${diffDays(hoyS(),x.ultPago.fecha)} días</small>`:'<small>Ningún pago</small>'}</td>
+    <td>${f?.nombres?esc(nomPersona(f))+`<br><small>${esc(f.telefono||'')}${f.parentesco?' · '+esc(f.parentesco):''}</small>`:'<small>Sin fiador</small>'}</td>
+    <td><small>${ug?esc(fF(ug.fecha)+' '+(TIPOS_G[ug.tipo]||'')+': '+ug.resultado):'Sin gestión'}${x.prom?`<br>Promesa ${n2(x.prom.promesaMonto)} · ${fF(x.prom.promesaFecha)}${x.promVencida?' (incumplida)':''}`:''}</small></td></tr>`};
+  return `<div class="doc">${encabezadoDoc('REPORTE DE GESTIÓN DE COBRO',fLargo(hoyS())+' · '+etFiltro+(GF.min>1&&GF.est!=='aldia'?' · más de '+(GF.min-1)+' días':''))}
+  <table class="d-t"><tr>${cel('Vencidos',cnt('vencido'))}${cel('En mora',cnt('mora'))}${cel('Al día',cnt('aldia'))}${cel('Cuotas atrasadas',cs.reduce((t,x)=>t+x.r.vencidas,0))}${cel('Vencido + mora por cobrar',fmt(tot))}</tr></table>
+  <table class="d-t d-plan"><thead><tr><th>Estado</th><th>Cliente</th><th>Días atraso</th><th>Cuotas atrasadas</th><th>Vencido + mora</th><th>Último pago</th><th>Fiador</th><th>Última gestión / promesa</th></tr></thead><tbody>
+  ${grupos.map(([e,l])=>`<tr class="d-grupo"><th colspan="8">${EST_COBRO[e][0]} · ${l.length} ${l.length===1?'cliente':'clientes'}</th></tr>`+l.map(fila).join('')).join('')||'<tr><td colspan="8">Sin casos.</td></tr>'}</tbody>
+  <tfoot><tr><th colspan="3">${cs.length} ${cs.length===1?'cliente':'clientes'}</th><th class="num">${cs.reduce((t,x)=>t+x.r.vencidas,0)}</th><th class="num">${n2(tot)}</th><th colspan="3"></th></tr></tfoot></table>
+  <p class="small">Vencido: ya pasó la fecha de su última cuota y aún debe. En mora: tiene cuotas atrasadas dentro del plazo. Al día: sin atrasos.<br>Generado el ${esc(fHoraCorta(new Date().toISOString()))} por ${esc(ME.name||ME.id)}.</p></div>`;
 }
 function docAvisoFiador(pid){
   const x=casosCobro().find(y=>y.p.id===pid);if(!x)return '';const f=x.g.fiador;
@@ -3092,6 +3109,7 @@ document.addEventListener('click',e=>{
   else if('respdescarga' in d){const datos={generado:new Date().toISOString(),empresa:CONFIG.empresa,usuario:ME.id,clientes:S.clientes,prestamos:S.prestamos,pagos:S.pagos,solicitudes:S.solicitudes,rutas:S.rutas,gestiones:S.gestiones,config:CONFIG};
     const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(datos,null,1)],{type:'application/json'}));a.download='AppKredinova_datos_'+hoyS()+'.json';document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);api('registrarEvento','descargarDatos','JSON').catch(()=>{})}
   else if(d.gmin){GF.min=Number(d.gmin);render(true)}
+  else if(d.gest){GF.est=d.gest;render(true)}
   else if(d.gestionar)modalGestion(d.gestionar);
   else if(d.histg)modalHistorialGestion(d.histg);
   else if(d.savegest){const o={prestamoId:d.savegest,tipo:$('#gs-t').value,contacto:$('#gs-c').value,resultado:$('#gs-r').value.trim(),promesaFecha:$('#gs-pf').value,promesaMonto:$('#gs-pm').value};
@@ -3222,12 +3240,14 @@ document.addEventListener('change',e=>{const t=e.target;
   if(t.id==='c-departamento'){const sel=$('#c-municipio');if(sel)sel.innerHTML='<option value="">Elige…</option>'+(NIC_DEPTOS[t.value]||[]).map(m=>`<option>${esc(m)}</option>`).join('')}
   if(t.dataset.sfchk&&SOLD){SOLD[t.dataset.sfchk]=t.checked;SOLDIRTY=true;if(t.dataset.sfchk==='sinFiador'){const b=$('#fiadorBox');if(b)b.hidden=t.checked}actualizarProgreso();return}
   if(t.dataset.sf&&SOLD){setP(SOLD,t.dataset.sf,t.value);SOLDIRTY=true;
+    if(t.dataset.sf==='primerPagoDeseado'&&MOD[SOLD.frecuencia]&&t.value===fechasCuotas(hoyS(),SOLD.frecuencia,1,calendarioActual())[0])SOLD.primerPagoDeseado='';
     if(/^referencias\.[01]\.parentesco$/.test(t.dataset.sf))sincronizarParentesco(Number(t.dataset.sf.split('.')[1]));
     if(t.dataset.sf.endsWith('.departamento')){const pref=t.dataset.sf.split('.')[0];const sel=$('#sf-'+pref+'-municipio');const lista=NIC_DEPTOS[t.value]||[];
       if(!lista.includes(getP(SOLD,pref+'.municipio')))setP(SOLD,pref+'.municipio','');
       if(sel)sel.innerHTML='<option value="">Elige…</option>'+lista.map(m=>`<option value="${esc(m)}">${esc(m)}</option>`).join('')}
     actualizarProgreso();return}
-  if(t.dataset.ap&&APD){APD[t.dataset.ap]=t.value;if((t.dataset.ap==='frecuencia'||t.dataset.ap==='meses')&&!APD.manual){APD.nCuotas=cuotasDe(APD.meses,APD.frecuencia)}render(true);return}
+  if(t.dataset.ap&&APD){APD[t.dataset.ap]=t.value;
+    if(t.dataset.ap==='primerPagoPedido'&&MOD[APD.frecuencia]&&t.value===fechasCuotas(sol0Base(APD),APD.frecuencia,1,calendarioActual())[0])APD.primerPagoPedido='';if((t.dataset.ap==='frecuencia'||t.dataset.ap==='meses')&&!APD.manual){APD.nCuotas=cuotasDe(APD.meses,APD.frecuencia)}render(true);return}
   if(t.dataset.gar&&GARD){const [i,k]=t.dataset.gar.split('.');GARD.items[i][k]=t.value;actualizarGarantias();return}
   if(t.hasAttribute&&t.hasAttribute('data-garchk')&&GARD){GARD.declaracion=t.checked;actualizarGarantias();return}
   if(t.hasAttribute&&t.hasAttribute('data-vcond')&&VFD){VFD.condonar=t.checked;actualizarVerif();return}
