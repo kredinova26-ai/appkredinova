@@ -265,6 +265,9 @@ table.ventas td,table.gar td,table.verif td{padding:4px}table.verif td.sn{white-
 .doc .carta{font-size:10.5pt;line-height:1.55}.doc .carta p{margin:0 0 10px}
 .field input.mal{border-color:var(--late);background:var(--late-soft)}
 .estado-act{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.82rem;color:var(--muted);margin:-4px 0 0}.estado-act.mal{color:var(--late)}.estado-act .btn{padding:4px 10px}
+.btn-campana{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none}
+.btn-campana svg{width:19px;height:19px}.btn-campana .badge{position:absolute;top:-4px;right:-4px;background:var(--late)}
+.punto{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--late);margin-right:6px;vertical-align:1px}
 .falt{margin:0;padding-left:18px;font-size:.84rem;color:var(--due)}.falt li{margin:2px 0}
 hr.sep{border:0;border-top:1px dashed var(--line);margin:4px 0}
 table.cmp td,table.cmp th{white-space:normal}
@@ -789,7 +792,7 @@ function agenda(){
 
 /* ============ vistas ============ */
 const ICON_BACK='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M15 6l-6 6 6 6"/></svg>';
-function topbar(title,extra=''){const r=miRol();return `<div class="topbar"><div><div class="brandmark" style="margin-bottom:10px"><img class="logo-tile" src="${LOGO_ICON}" alt="">AppKredinova</div><h1>${title}</h1></div><div class="row">${extra}${r?`<button class="me-chip" data-perfil aria-label="Mi perfil: ${ROLES[r].label}">${avatar(ME.id,34)}</button>`:''}</div></div>`}
+function topbar(title,extra=''){const r=miRol();return `<div class="topbar"><div><div class="brandmark" style="margin-bottom:10px"><img class="logo-tile" src="${LOGO_ICON}" alt="">AppKredinova</div><h1>${title}</h1></div><div class="row">${extra}${r&&!ME.debeCambiar?btnCampana():''}${r?`<button class="me-chip" data-perfil aria-label="Mi perfil: ${ROLES[r].label}">${avatar(ME.id,34)}</button>`:''}</div></div>`}
 function pillEstado(r){return r.estado==='cancelado'?'<span class="pill p-mute">Cancelado</span>':r.estado==='mora'?`<span class="pill p-late">${r.vencidas} en mora</span>`:'<span class="pill p-ok">Al día</span>'}
 function pillMod(m){return `<span class="pill p-info">${MOD[m]?.label||m}</span>`}
 function agendaItem(a){
@@ -2431,6 +2434,48 @@ VIEWS.respaldos=()=>{
   </div>`;
 };
 
+/* ============ avisos: a quién le toca actuar en una solicitud ============ */
+// Se calculan con el estado de cada solicitud: quien debe autorizar recibe el aviso al enviarse la verificación,
+// y quien creó o verificó la solicitud recibe el aviso cuando se aprueba, autoriza, devuelve, deniega o desembolsa.
+function avisosParaMi(){
+  if(!ME.id)return [];const yo=ME.id,out=[],hace=d=>Math.abs(diffDays(hoyS(),String(d||'').slice(0,10)||hoyS()));
+  solVista().forEach(x=>{
+    const v=x.verificacion||{},mia=x.creadoPor===yo||v.enviadoPor===yo||x.gestor===yo,num='N° '+x.numero+' · '+nombreSol(x);
+    if(x.estado==='POR_AUTORIZAR'&&puedeAutorizar()&&(v.enviadoPor!==yo||ME.esPropietario))
+      out.push({k:'aut:'+x.id+':'+(v.verificadoEl||''),tono:'late',t:'Desembolso por autorizar',d:num+(v.enviadoPor?' · enviada por '+nomU(v.enviadoPor):''),href:`#/solicitud/${x.id}/4`,cuando:v.verificadoEl||x.actualizado});
+    if(!mia)return;
+    if(x.estado==='AUTORIZADA')out.push({k:'ok:'+x.id+':'+(v.autorizadoEl||''),tono:'ok',t:'Desembolso autorizado: puedes desembolsar',d:num+(v.gerente?' · visto bueno de '+v.gerente:'')+(v.obsVistoBueno?' · '+v.obsVistoBueno:''),href:`#/solicitud/${x.id}/4`,cuando:v.autorizadoEl||x.actualizado});
+    if(x.estado==='APROBADA'&&v.devolucion)out.push({k:'dev:'+x.id+':'+v.devolucion.fecha,tono:'due',t:'Verificación devuelta para corregir',d:num+' · '+v.devolucion.motivo,href:`#/solicitud/${x.id}/4`,cuando:v.devolucion.fecha});
+    else if(x.estado==='APROBADA'&&x.aprobadoEl&&hace(x.aprobadoEl)<=7&&x.creadoPor===yo&&x.aprobadoPor!==yo)out.push({k:'apr:'+x.id+':'+x.aprobadoEl,tono:'info',t:'Solicitud aprobada: registra las garantías',d:num,href:`#/solicitud/${x.id}/3`,cuando:x.aprobadoEl});
+    if(x.estado==='DENEGADA'&&hace(x.actualizado)<=7)out.push({k:'den:'+x.id,tono:'late',t:'Solicitud denegada',d:num+(v.razones?' · '+v.razones:''),href:`#/solicitud/${x.id}/4`,cuando:x.actualizado});
+    if(x.estado==='DESEMBOLSADA'&&hace(x.desembolsadoEl)<=3&&x.desembolsadoPor!==yo)out.push({k:'des:'+x.id,tono:'ok',t:'Crédito desembolsado',d:num,href:`#/prestamo/${x.prestamoId}`,cuando:x.desembolsadoEl});
+  });
+  return out.sort((a,b)=>String(b.cuando||'').localeCompare(String(a.cuando||'')));
+}
+const claveVistos=()=>'kn_avisos_'+(ME.id||'');
+function avisosVistos(){try{return new Set(JSON.parse(localStorage.getItem(claveVistos())||'[]'))}catch(e){return new Set()}}
+function marcarAvisosVistos(ks){try{const s=avisosVistos();ks.forEach(k=>s.add(k));localStorage.setItem(claveVistos(),JSON.stringify([...s].slice(-300)))}catch(e){}}
+let AVISOS_NOTIFICADOS=new Set();
+// Se llama cada vez que llegan datos: muestra un mensaje (y una notificación del dispositivo, si se permitió) por cada aviso nuevo
+function revisarAvisos(){
+  if(mode!=='gas'||!ME.id||ME.debeCambiar)return;const vistos=avisosVistos();
+  const nuevos=avisosParaMi().filter(a=>!vistos.has(a.k)&&!AVISOS_NOTIFICADOS.has(a.k));
+  pintarCampana();if(!nuevos.length)return;
+  nuevos.forEach(a=>AVISOS_NOTIFICADOS.add(a.k));
+  toast(nuevos.length===1?nuevos[0].t+' · '+nuevos[0].d.split(' · ').slice(0,2).join(' · '):`Tienes ${nuevos.length} avisos nuevos`);
+  try{if('Notification' in window&&Notification.permission==='granted'&&document.hidden)nuevos.slice(0,3).forEach(a=>{const n=new Notification('AppKredinova · '+a.t,{body:a.d,icon:'/icons/icon-192.png',tag:a.k});n.onclick=()=>{window.focus();location.hash=a.href}})}catch(e){}
+}
+function nAvisosSinLeer(){const v=avisosVistos();return avisosParaMi().filter(a=>!v.has(a.k)).length}
+function btnCampana(){const n=nAvisosSinLeer();return `<button class="btn-campana" data-avisos aria-label="Avisos${n?': '+n+' sin leer':''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>${n?`<span class="badge">${n}</span>`:''}</button>`}
+function pintarCampana(){$$('.btn-campana').forEach(b=>{const n=nAvisosSinLeer();let s=b.querySelector('.badge');if(n){if(!s){s=document.createElement('span');s.className='badge';b.appendChild(s)}s.textContent=n}else if(s)s.remove()})}
+function modalAvisos(){
+  const l=avisosParaMi(),v=avisosVistos();
+  openModal(`<div class="spread" style="margin-bottom:10px"><h2>Avisos</h2><button class="btn sm" data-close>Cerrar</button></div>
+  ${l.length?`<div class="list">${l.map(a=>`<a class="item" href="${a.href}" data-avisok="${esc(a.k)}"><div><div class="who">${v.has(a.k)?'':'<span class="punto"></span>'}${esc(a.t)}</div><div class="meta">${esc(a.d)}</div></div><span class="small muted">${a.cuando?esc(fHoraCorta(a.cuando)):''}</span></a>`).join('')}</div>`:'<div class="empty">No tienes avisos.</div>'}
+  <div class="row" style="margin-top:12px">${l.length?'<button class="btn sm" data-avisosleidos>Marcar todos como leídos</button>':''}
+  ${'Notification' in window&&Notification.permission==='default'?'<button class="btn sm" data-notifperm>Recibir notificaciones en este dispositivo</button>':''}</div>`);
+}
+
 function sinPermiso(){return `${topbar('Sin permiso')}<div class="panel empty">Tu rol (${ROLES[miRol()]?.label||'sin rol'}) no tiene acceso a esta sección.</div>`}
 function modalPerfil(){
   const r=miRol();
@@ -2467,7 +2512,7 @@ function modalReset(id){
   <button class="btn primary" data-confirmreset="${esc(id)}" style="padding:13px;width:100%;margin-top:16px">Restablecer</button>`);
 }
 /* ---- pendientes de gestión: lo que el administrador o supervisor debe atender ---- */
-function avisarAutorizaciones(){
+function avisarAutorizaciones(){revisarAvisos();return;
   if(mode!=='gas'||!puedeAutorizar())return;const n=pendientesGestion().porAutorizar;
   if(n>0&&n!==AVISO_AUT)toast(n===1?'Tienes 1 desembolso esperando tu visto bueno':`Tienes ${n} desembolsos esperando tu visto bueno`);AVISO_AUT=n;
 }
@@ -2967,6 +3012,10 @@ document.addEventListener('click',e=>{
   else if(d.resetpw)modalReset(d.resetpw);
   else if(d.confirmreset){const id=d.confirmreset,pw=$('#r-pass').value;closeModal();llamar('restablecerClave',[id,pw],null,{force:true}).then(r=>{if(r)openModal(`<h2>Contraseña restablecida</h2><div class="receipt"><div class="ln"><span>Usuario</span><b>${esc(id)}</b></div><div class="ln"><span>Contraseña temporal</span><b>${esc(pw)}</b></div></div><button class="btn primary" data-close style="width:100%;padding:12px;margin-top:12px">Listo</button>`)})}
   else if('salir' in d)salir();
+  else if('avisos' in d){modalAvisos()}
+  else if(d.avisok){marcarAvisosVistos([d.avisok]);closeModal();setTimeout(pintarCampana,50)}
+  else if('avisosleidos' in d){marcarAvisosVistos(avisosParaMi().map(a=>a.k));closeModal();pintarCampana();toast('Avisos marcados como leídos')}
+  else if('notifperm' in d){Notification.requestPermission().then(p=>{toast(p==='granted'?'Listo: recibirás notificaciones en este dispositivo':'No se activaron las notificaciones');closeModal()})}
   else if('instalar' in d){closeModal();if(INSTALAR){INSTALAR.prompt();INSTALAR.userChoice.finally(()=>{INSTALAR=null})}}
   else if('refrescar' in d)actualizarAhora(true);
   else if('veragenda' in d){ui.cobrosTab=null;ui.ruta=''}
