@@ -509,7 +509,7 @@ const ME={id:null,name:'',rol:null,esPropietario:false,inactivo:false,solicitud:
 let USERS={miembros:{}};
 let DATA_V='',VERSION_SERVIDOR=null;
 // La app necesita esta versión de Code.gs; si el servidor es más viejo, se avisa al administrador
-const VERSION_API_REQUERIDA='2026.10.09-simulador';
+const VERSION_API_REQUERIDA='2026.10.10-tipocredito';
 function servidorDesactualizado(){return mode==='gas'&&VERSION_SERVIDOR!==null&&VERSION_SERVIDOR!==VERSION_API_REQUERIDA}
 function avisoServidor(){if(!servidorDesactualizado()||!(ME.rol==='admin'||ME.esPropietario))return '';
   return `<div class="notice" style="background:var(--due-soft);color:var(--due)"><b>El servidor de Apps Script está desactualizado.</b> Algunas opciones nuevas (como el Respaldo de información) no aparecerán hasta que reemplaces <b>Code.gs</b> y <b>appsscript.json</b>, ejecutes <i>instalar</i> y publiques una <b>versión nueva</b> de la implementación. Versión del servidor: ${esc(VERSION_SERVIDOR||'anterior')} · requerida: ${VERSION_API_REQUERIDA}.</div>`}
@@ -1164,6 +1164,14 @@ const NIC_DEPTOS = {
 };
 function municipioValido(dep, mun) { return !dep || !mun || (NIC_DEPTOS[dep] || []).indexOf(mun) >= 0; }
 function deptoDeMunicipio(mun) { const m = String(mun || '').trim().toLowerCase(); return Object.keys(NIC_DEPTOS).find(d => NIC_DEPTOS[d].some(x => x.toLowerCase() === m)) || ''; }
+/* === Sector económico y destino según el tipo de crédito (idéntico en la app y el servidor) ===
+   Microcrédito y Pyme: sector Comercio, Producción o Servicio · destino Capital de trabajo o Restructuración
+   Asalariado: sector Consumo · destino Consumo o Restructuración */
+function opcionesCredito(tipo) {
+  return tipo === 'ASALARIADO'
+    ? { sectores: ['CONSUMO'], destinos: ['CONSUMO', 'RESTRUCTURACION'] }
+    : { sectores: ['COMERCIO', 'PRODUCCION', 'SERVICIO'], destinos: ['CAPITAL TRABAJO', 'RESTRUCTURACION'] };
+}
 /* === Formatos únicos de cédula y teléfono (idénticos en la app y el servidor) === */
 // Cédula nicaragüense: 000-000000-0000A · Teléfono o celular: 0000-0000
 function formatoCedula(v) {
@@ -1227,8 +1235,13 @@ function faltantesSolicitud(d) {
     ['personasCargo', 'Personas a cargo'], ['vivienda', 'Tipo de vivienda']], 'Cliente: ');
   if (d.cliente && v(d.cliente.edad) && (Number(d.cliente.edad) < 18 || Number(d.cliente.edad) > 99)) f.push('Cliente: Edad fuera de rango (18 a 99)');
   if (casado(d.cliente && d.cliente.estadoCivil)) faltantesConyuge(d.conyuge, d.cliente && d.cliente.cedula).forEach(x => f.push(x));
-  req(d.negocio, [['actividad', 'Actividad o empresa'], ['antiguedad', 'Antigüedad'], ['direccion', 'Dirección del negocio o empresa'], ['tiempo', 'Tiempo del negocio o de laborar']], 'Negocio/trabajo: ');
-  if (asal) req(d.negocio, [['puesto', 'Puesto'], ['salario', 'Salario mensual'], ['telefono', 'Teléfono de la empresa'], ['jefe', 'Jefe inmediato'], ['telJefe', 'Teléfono del jefe']], 'Trabajo: ');
+  if (asal) req(d.negocio, [['actividad', 'Nombre de la empresa'], ['antiguedad', 'Antigüedad de laborar'], ['puesto', 'Puesto de trabajo'], ['salario', 'Salario mensual'],
+    ['direccion', 'Dirección de la empresa'], ['telefono', 'Teléfono de la empresa'], ['jefe', 'Jefe inmediato'], ['telJefe', 'Teléfono del jefe inmediato']], 'Empresa: ');
+  else req(d.negocio, [['actividad', 'Actividad del negocio'], ['antiguedad', 'Antigüedad del negocio'], ['direccion', 'Dirección del negocio'], ['telefono', 'Teléfono del negocio']], 'Negocio: ');
+  if (asal && v(d.negocio && d.negocio.salario) && !(Number(d.negocio.salario) > 0)) f.push('Empresa: Salario mensual debe ser mayor que cero');
+  { const oc = opcionesCredito(d.tipoCredito);
+    if (v(d.sector) && oc.sectores.indexOf(d.sector) < 0) f.push('Crédito: el sector económico no corresponde al tipo de crédito');
+    if (v(d.destino) && oc.destinos.indexOf(d.destino) < 0) f.push('Crédito: el destino no corresponde al tipo de crédito'); }
   const refs = d.referencias || [];
   [0, 1].forEach(i => req(refs[i], [['nombre', 'Nombres y apellidos'], ['direccion', 'Dirección'], ['parentesco', 'Parentesco'], ['telefono', 'Teléfono']], 'Referencia ' + (i + 1) + ': '));
   const par = [0, 1].map(i => String((refs[i] || {}).parentesco || '').trim().toUpperCase());
@@ -1460,7 +1473,7 @@ function vistaPaso1(sol,cidNueva){
   <div class="stack">
   <section class="panel pad stack"><h2>Datos del crédito</h2>
     <div class="fgrid">${fi('promotor','Nombre del promotor',{ro})}${fi('gestor','Gestor de crédito',{ro,opts:usuarios})}</div>
-    ${seg('tipoCredito','Tipo de crédito',TIPOS_CRED,ro)}${seg('sector','Sector económico',SECTORES,ro)}${seg('destino','Destino del crédito',DESTINOS,ro)}
+    ${seg('tipoCredito','Tipo de crédito',TIPOS_CRED,ro)}${seg('sector','Sector económico',SECTORES.filter(([k])=>opcionesCredito(SOLD.tipoCredito).sectores.includes(k)),ro)}${seg('destino','Destino del crédito',DESTINOS.filter(([k])=>opcionesCredito(SOLD.tipoCredito).destinos.includes(k)),ro)}
     <div class="fgrid">${fi('montoSolicitado','Monto solicitado (C$)',{ro,num:1})}${fi('frecuencia','Frecuencia',{ro,opts:MOD_ORDEN.map(m=>[m,MOD[m].label])})}
     ${fi('plazoMeses','Plazo (meses)',{ro,num:1})}<div class="field"><label>Cuota estimada</label><div class="calc" id="sCuota">—</div></div>
     <div class="field"><label>Día de pago</label><div class="calc" id="sDia">—</div></div><div class="field"><label>Primer fecha de pago</label><div class="calc" id="sPrimer">—</div></div></div>
@@ -1474,10 +1487,12 @@ function vistaPaso1(sol,cidNueva){
     </div>`:''}
     ${sol||ro||SOLD.modoCli==='nuevo'||SOLD.clienteId?bloquePersona('cliente',ro):''}</section>
   <section class="panel pad stack"><h2>Información del cónyuge</h2><p class="small muted" style="margin:0">Obligatoria si el cliente es casado o en unión libre: cédula, nombres, apellidos y celular.</p><div class="fgrid">${fi('conyuge.cedula','N° cédula',{ro,mask:'cedula'})}${fi('conyuge.celular','N° celular',{ro,mask:'tel'})}${fi('conyuge.nombres','Nombres',{ro})}${fi('conyuge.apellidos','Apellidos',{ro})}</div></section>
-  <section class="panel pad stack"><h2>Información del negocio o trabajo</h2><div class="fgrid">
-    ${fi('negocio.actividad','Actividad o nombre de la empresa',{ro,full:1})}${fi('negocio.antiguedad','Antigüedad negocio/trabajo',{ro})}${fi('negocio.puesto','Puesto',{ro})}
-    ${fi('negocio.salario','Salario mensual (C$)',{ro,num:1})}${fi('negocio.tiempo','Tiempo del negocio / de laborar',{ro})}${fi('negocio.direccion','Dirección del negocio o empresa',{ro,full:1})}
-    ${fi('negocio.telefono','Teléfono de la empresa',{ro,mask:'tel'})}${fi('negocio.jefe','Jefe inmediato',{ro})}${fi('negocio.telJefe','Teléfono del jefe',{ro,mask:'tel'})}</div>
+  ${SOLD.tipoCredito==='ASALARIADO'?`<section class="panel pad stack"><h2>Información de la empresa donde labora</h2><div class="fgrid">
+    ${fi('negocio.actividad','Nombre de la empresa',{ro,full:1})}${fi('negocio.antiguedad','Antigüedad de laborar',{ro,ph:'ej. 3 años'})}${fi('negocio.puesto','Puesto de trabajo',{ro})}
+    ${fi('negocio.salario','Salario mensual (C$)',{ro,num:1})}${fi('negocio.telefono','Teléfono de la empresa',{ro,mask:'tel'})}${fi('negocio.direccion','Dirección de la empresa',{ro,full:1})}
+    ${fi('negocio.jefe','Jefe inmediato',{ro})}${fi('negocio.telJefe','Teléfono del jefe inmediato',{ro,mask:'tel'})}</div>`:`<section class="panel pad stack"><h2>Información del negocio</h2><div class="fgrid">
+    ${fi('negocio.actividad','Actividad del negocio',{ro,full:1,ph:'ej. Pulpería, venta de ropa, taller'})}${fi('negocio.antiguedad','Antigüedad del negocio',{ro,ph:'ej. 5 años'})}${fi('negocio.telefono','Teléfono del negocio',{ro,mask:'tel'})}
+    ${fi('negocio.direccion','Dirección del negocio',{ro,full:1})}</div>`}
     <p class="small muted" style="margin:0">Puesto, salario, teléfono y jefe son obligatorios para crédito asalariado.</p></section>
   <section class="panel pad stack"><h2>Referencias personales</h2><p class="small muted" style="margin:0">Una familiar y una de amistad: al elegir el parentesco de la primera, la segunda se ajusta sola.</p>
     ${[0,1].map(i=>`<div class="fgrid">${fi(`referencias.${i}.nombre`,`Referencia ${i+1}: nombres y apellidos`,{ro,full:1})}${fi(`referencias.${i}.direccion`,'Dirección domicilio',{ro})}${fi(`referencias.${i}.parentesco`,'Parentesco',{ro,opts:opcionesParentesco(i)})}${fi(`referencias.${i}.telefono`,'N° teléfono',{ro,mask:'tel'})}</div>`).join('<hr class="sep">')}</section>
@@ -1568,7 +1583,7 @@ function vistaPaso2(sol){
     <div class="fgrid">${inp('monto','Monto aprobado (C$)',1)}<div class="field"><label for="ap-frecuencia">Frecuencia</label><select id="ap-frecuencia" data-ap="frecuencia" ${ro?'disabled':''}>${MOD_ORDEN.map(m=>`<option value="${m}" ${a.frecuencia===m?'selected':''}>${MOD[m].label}</option>`).join('')}</select></div>
     ${inp('meses','Plazo (meses)',1)}${campoCuotas('ap',a.nCuotas,cuotasDe(a.meses,a.frecuencia),a.manual,!ro)}${inp('interes','Interés mensual (%)',1)}${inp('tasaMora','Mora mensual (%)',1)}
     ${inp('fechaDesembolso','Fecha prevista de desembolso',0,'date')}
-    <div class="field"><label for="ap-destino">Destino</label><select id="ap-destino" data-ap="destino" ${ro?'disabled':''}>${DESTINOS.map(([k,t])=>`<option value="${k}" ${a.destino===k?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="field"><label for="ap-destino">Destino</label><select id="ap-destino" data-ap="destino" ${ro?'disabled':''}>${DESTINOS.filter(([k])=>opcionesCredito(d.tipoCredito).destinos.includes(k)||k===a.destino).map(([k,t])=>`<option value="${k}" ${a.destino===k?'selected':''}>${t}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-cob">Gestor / cobrador asignado</label><select id="ap-cob" data-ap="cobradorId" ${ro?'disabled':''}><option value="">Sin asignar</option>${cobradores().map(u=>`<option value="${esc(u)}" ${u===a.cobradorId?'selected':''}>${esc(quien(u))}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-obs">Observación</label><input id="ap-obs" data-ap="observacion" value="${esc(a.observacion||'')}" ${ro?'disabled':''}></div></div>
     ${cu.length?`<div class="summary"><div class="hl" style="grid-column:1/-1"><span>Cuota ${MOD[a.frecuencia].label.toLowerCase()}</span><b>${fmt(cu[0].total)}</b></div><div><span>Total a pagar</span><b>${fmt(cu.reduce((t,c)=>t+c.total,0))}</b></div><div><span>Vencimiento</span><b>${fFc(cu[cu.length-1].fecha)}</b></div></div>`:'<div class="notice">Completa monto, plazo y cuotas.</div>'}
@@ -1720,16 +1735,18 @@ function docSolicitud(sol){
   return `<div class="doc">${encabezadoDoc('SOLICITUD DE CRÉDITO','N° '+sol.numero+' · '+fF(sol.fecha))}
   <table class="d-t"><tr>${cel('Nombre promotor',d.promotor,2)}${cel('Nombre gestor de crédito',nomU(d.gestor),2)}</tr>
   <tr><td colspan="4"><small>Tipo de crédito</small><div>${ops(TIPOS_CRED,d.tipoCredito)}</div></td></tr>
-  <tr><td colspan="4"><small>Sector económico</small><div>${ops(SECTORES,d.sector)}</div></td></tr>
-  <tr><td colspan="4"><small>Destino del crédito</small><div>${ops(DESTINOS,d.destino)}</div></td></tr>
+  <tr><td colspan="4"><small>Sector económico</small><div>${ops(SECTORES.filter(([k])=>opcionesCredito(d.tipoCredito).sectores.includes(k)),d.sector)}</div></td></tr>
+  <tr><td colspan="4"><small>Destino del crédito</small><div>${ops(DESTINOS.filter(([k])=>opcionesCredito(d.tipoCredito).destinos.includes(k)),d.destino)}</div></td></tr>
   <tr>${cel('Monto solicitado',fmt(d.montoSolicitado))}${cel('Frecuencia',MOD[d.frecuencia]?.label)}${cel('Plazo',d.plazoMeses+' meses')}${cel('Monto cuota',ce?fmt(ce.cuota):'')}</tr>
   <tr>${cel('Día de pago',ce?ce.dia:'')}${cel('Primer fecha de pago',ce?fF(ce.primer):'')}<td colspan="2"><small>Lugar de cobro</small><div>${ops(LUGARES,d.lugarCobro)}</div></td></tr></table>
   <div class="d-sec">Información del cliente</div><table class="d-t">${persona(c)}</table>
   <div class="d-sec">Información del cónyuge</div><table class="d-t"><tr>${cel('N° cédula',cy.cedula)}${cel('Nombres',cy.nombres)}${cel('Apellidos',cy.apellidos)}${cel('N° celular',cy.celular)}</tr></table>
-  <div class="d-sec">Información del negocio / trabajo</div><table class="d-t">
-  <tr>${cel('Actividad / empresa',ng.actividad,2)}${cel('Antigüedad',ng.antiguedad)}${cel('Puesto / salario mensual',(ng.puesto||'')+(ng.salario?' · '+fmt(ng.salario):''))}</tr>
-  <tr>${cel('Dirección negocio / empresa',ng.direccion,2)}${cel('Tiempo del negocio / laborar',ng.tiempo)}${cel('Teléfono empresa',ng.telefono)}</tr>
-  <tr>${cel('Jefe inmediato',ng.jefe,3)}${cel('Teléfono jefe',ng.telJefe)}</tr></table>
+  ${d.tipoCredito==='ASALARIADO'?`<div class="d-sec">Información de la empresa donde labora</div><table class="d-t">
+  <tr>${cel('Nombre de la empresa',ng.actividad,2)}${cel('Antigüedad de laborar',ng.antiguedad)}${cel('Puesto de trabajo',ng.puesto)}</tr>
+  <tr>${cel('Salario mensual',ng.salario?fmt(ng.salario):'')}${cel('Dirección de la empresa',ng.direccion,2)}${cel('Teléfono de la empresa',ng.telefono)}</tr>
+  <tr>${cel('Jefe inmediato',ng.jefe,3)}${cel('Teléfono del jefe inmediato',ng.telJefe)}</tr></table>`:`<div class="d-sec">Información del negocio</div><table class="d-t">
+  <tr>${cel('Actividad del negocio',ng.actividad,2)}${cel('Antigüedad del negocio',ng.antiguedad)}${cel('Teléfono del negocio',ng.telefono)}</tr>
+  <tr>${cel('Dirección del negocio',ng.direccion,4)}</tr></table>`}
   <div class="d-sec">Referencias personales (1 familiar y 1 amistad)</div><table class="d-t"><tr><th>Nombres y apellidos</th><th>Dirección domicilio</th><th>Parentesco</th><th>N° teléfono</th></tr>
   ${(d.referencias||[]).map(r=>`<tr><td>${esc(r.nombre)}</td><td>${esc(r.direccion)}</td><td>${esc(r.parentesco)}</td><td>${esc(r.telefono)}</td></tr>`).join('')}</table>
   ${d.tipoCredito!=='ASALARIADO'?`<div class="d-sec">Análisis del negocio</div><table class="d-t"><tr><th>Ventas</th>${DIAS_SEM.map(x=>`<th>${x}</th>`).join('')}<th>Total</th></tr>${ven('buenas','Buenas')}${ven('regulares','Regulares')}${ven('malas','Malas')}
@@ -3023,7 +3040,11 @@ document.addEventListener('click',e=>{
   else if(d.climodo){SOLD.modoCli=d.climodo;if(d.climodo==='nuevo'){SOLD.clienteId=null;SOLD.cliente={};SOLD.conyuge={};SOLD.negocio={};SOLD.referencias=[{},{}];SOLD.fiador={}}SOLDIRTY=true;render(true)}
   else if('clicambiar' in d){SOLD.clienteId=null;SOLD.cliente={};SOLD.conyuge={};SOLDIRTY=true;render(true);setTimeout(()=>$('#cliBuscar')?.focus(),30)}
   else if(d.solf){ui.solFiltro=d.solf;render(true)}
-  else if(d.sseg){setP(SOLD,d.sseg,d.v);if(d.sseg==='tipoCredito'){const sv=$('#secVentas');if(sv)sv.hidden=d.v==='ASALARIADO'}$$(`[data-sseg="${d.sseg}"]`).forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===d.v));SOLDIRTY=true;actualizarProgreso()}
+  else if(d.sseg==='tipoCredito'){SOLD.tipoCredito=d.v;const oc=opcionesCredito(d.v);
+    if(!oc.sectores.includes(SOLD.sector))SOLD.sector=oc.sectores.length===1?oc.sectores[0]:'';
+    if(!oc.destinos.includes(SOLD.destino))SOLD.destino=SOLD.destino==='RESTRUCTURACION'?'RESTRUCTURACION':'';
+    SOLDIRTY=true;render(true)}
+  else if(d.sseg){setP(SOLD,d.sseg,d.v);$$(`[data-sseg="${d.sseg}"]`).forEach(b=>b.setAttribute('aria-pressed',b.dataset.v===d.v));SOLDIRTY=true;actualizarProgreso()}
   else if('savesol' in d)guardarSol();
   else if('printsol' in d){const sol=S.solicitudes[SOLID];if(sol)imprimirDoc(docSolicitud(sol),'imprimirSolicitud','Solicitud N° '+sol.numero)}
   else if(d.delsol){if(confirm('¿Eliminar esta solicitud? No se puede deshacer.'))llamar('eliminarSolicitud',[d.delsol],'Solicitud eliminada',{force:true}).then(r=>{if(r){SOLD=null;location.hash='#/solicitudes'}})}
