@@ -381,7 +381,11 @@ const MOD={
   DIARIO:{label:'Diario',porMes:20,txt:'de lunes a viernes'},
   MENSUAL:{label:'Mensual',porMes:1,txt:'una vez al mes'}
 };
-const MOD_ORDEN=['SEMANAL','CATORCENAL','QUINCENAL','DIARIO','MENSUAL'];
+const MOD_ORDEN=['DIARIO','SEMANAL','CATORCENAL','QUINCENAL','MENSUAL'];
+// Frecuencias que el administrador dejó disponibles para créditos nuevos (Ajustes → Solicitudes de crédito)
+function frecuenciasActivas(){const l=String(CONFIG.frecuenciasActivas||MOD_ORDEN.join(',')).split(',').filter(m=>MOD[m]);return MOD_ORDEN.filter(m=>l.includes(m)).length?MOD_ORDEN.filter(m=>l.includes(m)):MOD_ORDEN}
+// Para un formulario: las activas, más la que ya tenga elegida (aunque se haya desactivado después)
+const frecuenciasPara=actual=>MOD_ORDEN.filter(m=>frecuenciasActivas().includes(m)||m===actual);
 
 /* === Clasificación de los pagos (idéntica en la app y el servidor) ===
    Referencia = lo exigible a la fecha (cuotas vencidas + cuota del día + mora) o, si no hay nada vencido, la próxima cuota.
@@ -459,11 +463,13 @@ function fechasCuotas(inicio, mod, n, cal) {
   return out;
 }
 // Interés plano mensual sobre el monto, repartido en partes iguales
-function generarCuotas({fecha,monto,interes,meses,modalidad,nCuotas}){
+function generarCuotas({fecha,monto,interes,meses,modalidad,nCuotas,primerPago,interesAjuste}){
   const intTotal=r2(monto*interes*meses),total=r2(monto+intTotal);
-  const base=r2(total/nCuotas),cb=r2(monto/nCuotas);
-  return fechasCuotas(fecha,modalidad,nCuotas,calendarioActual()).map((f,i)=>{
-    const last=i===nCuotas-1;const t=last?r2(total-base*(nCuotas-1)):base;const c=last?r2(monto-cb*(nCuotas-1)):cb;
+  const base=r2(total/nCuotas),cb=r2(monto/nCuotas),cal=calendarioActual();
+  const pp=primerPago&&primerPago>fecha?primerPago:'';
+  const extra=pp?(interesAjuste!=null?Number(interesAjuste)||0:ajustePrimerPago(fecha,modalidad,cal,pp,monto,interes,CONFIG.ajusteInteresPrimeraCuota||'si').interesExtra):0;
+  return fechasConPrimerPago(fecha,modalidad,nCuotas,cal,pp).map((f,i)=>{
+    const last=i===nCuotas-1;let t=last?r2(total-base*(nCuotas-1)):base;const c=last?r2(monto-cb*(nCuotas-1)):cb;if(i===0&&extra>0)t=r2(t+extra);
     return {n:i+1,fecha:f,total:t,capital:c,interes:r2(t-c),pagado:0,moraPagada:0,moraCondonada:0,pagadaEl:null};
   });
 }
@@ -512,7 +518,7 @@ const ME={id:null,name:'',rol:null,esPropietario:false,inactivo:false,solicitud:
 let USERS={miembros:{}};
 let DATA_V='',VERSION_SERVIDOR=null;
 // La app necesita esta versión de Code.gs; si el servidor es más viejo, se avisa al administrador
-const VERSION_API_REQUERIDA='2026.10.10-tipocredito';
+const VERSION_API_REQUERIDA='2026.10.12-primerpago2';
 function servidorDesactualizado(){return mode==='gas'&&VERSION_SERVIDOR!==null&&VERSION_SERVIDOR!==VERSION_API_REQUERIDA}
 function avisoServidor(){if(!servidorDesactualizado()||!(ME.rol==='admin'||ME.esPropietario))return '';
   return `<div class="notice" style="background:var(--due-soft);color:var(--due)"><b>El servidor de Apps Script está desactualizado.</b> Algunas opciones nuevas (como el Respaldo de información) no aparecerán hasta que reemplaces <b>Code.gs</b> y <b>appsscript.json</b>, ejecutes <i>instalar</i> y publiques una <b>versión nueva</b> de la implementación. Versión del servidor: ${esc(VERSION_SERVIDOR||'anterior')} · requerida: ${VERSION_API_REQUERIDA}.</div>`}
@@ -936,7 +942,7 @@ function exportarAuditoriaCSV(){
   api('registrarEvento','exportarAuditoria',l.length+' filas · filtros '+JSON.stringify(AUDV.f)).catch(()=>{});
 }
 /* ---- recibos de pago ---- */
-let CONFIG={mostrarDiagnostico:'no',toleranciaPago:'1',autorizadorDesembolsos:'',cuotasDiferenciadas:'no',cierreNocturno:'si',horaCierre:'22:00',diasCobro:'1,2,3,4,5',excluirFeriados:'si',semanaSanta:'si',feriados:FERIADOS_NIC,empresa:'APPKREDINOVA',sucursal:'',telefono:'',ruc:'',direccion:'',pie:'Gracias por su pago',papel:'58',represtamoMinPct:'50',represtamoMaxAtraso:'0',garantiaMinPct:'100',interesDefault:'15',moraDefault:'2',moneda:'CORDOBA'};
+let CONFIG={ajusteInteresPrimeraCuota:'si',frecuenciasActivas:'DIARIO,SEMANAL,CATORCENAL,QUINCENAL,MENSUAL',mostrarDiagnostico:'no',toleranciaPago:'1',autorizadorDesembolsos:'',cuotasDiferenciadas:'no',cierreNocturno:'si',horaCierre:'22:00',diasCobro:'1,2,3,4,5',excluirFeriados:'si',semanaSanta:'si',feriados:FERIADOS_NIC,empresa:'APPKREDINOVA',sucursal:'',telefono:'',ruc:'',direccion:'',pie:'Gracias por su pago',papel:'58',represtamoMinPct:'50',represtamoMaxAtraso:'0',garantiaMinPct:'100',interesDefault:'15',moraDefault:'2',moneda:'CORDOBA'};
 const n2=x=>(Number(x)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 function fHoraCorta(iso){try{const d=new Date(iso);return d.toLocaleDateString('es-NI',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('es-NI',{hour:'2-digit',minute:'2-digit',hour12:false})}catch(e){return iso||''}}
 // Datos de un recibo a partir del pago guardado
@@ -1096,6 +1102,14 @@ VIEWS.ajustes=()=>{
         ${Object.entries(USERS.miembros||{}).filter(([u,m])=>m.activo!==false&&m.rol==='admin').map(([u,m])=>`<option value="${esc(u)}" ${String(c.autorizadorDesembolsos||'').toLowerCase()===u?'selected':''}>${esc(m.nombre||u)} (@${esc(u)})</option>`).join('')}</select>
         <span class="small muted">Solo esta persona podrá autorizar desembolsos y recibirá los avisos. Debe tener rol Administrador; normalmente es el gerente de sucursal.</span>
         ${c.autorizadorDesembolsos&&!(USERS.miembros?.[String(c.autorizadorDesembolsos).toLowerCase()]?.rol==='admin'&&USERS.miembros?.[String(c.autorizadorDesembolsos).toLowerCase()]?.activo!==false)?'<span class="small" style="color:var(--late)">El autorizador designado ya no es un administrador activo: elige otro.</span>':''}</div>
+      <div class="field full"><label for="cf-aip">Si el cliente corre la fecha del primer pago</label><select id="cf-aip" data-cf="ajusteInteresPrimeraCuota">
+          <option value="si" ${!c.ajusteInteresPrimeraCuota||c.ajusteInteresPrimeraCuota==='si'?'selected':''}>Sumar los días de interés menos uno (1 día no se cobra)</option>
+          <option value="todos" ${c.ajusteInteresPrimeraCuota==='todos'?'selected':''}>Sumar todos los días de interés que se corra</option>
+          <option value="no" ${c.ajusteInteresPrimeraCuota==='no'?'selected':''}>No cobrar interés adicional</option></select>
+        <span class="small muted">Ejemplo con 3 días corridos: <b>menos uno</b> = 2 días de interés · <b>todos</b> = 3 días · <b>no cobrar</b> = 0. Un día de interés = monto × interés mensual ÷ 30.</span></div>
+      <div class="field full"><label>Frecuencias de pago disponibles</label><div class="chips" style="flex-wrap:wrap" role="group" aria-label="Frecuencias disponibles">${MOD_ORDEN.map(m=>`<button type="button" class="chip" data-cffrec="${m}" aria-pressed="${String(c.frecuenciasActivas||MOD_ORDEN.join(',')).split(',').includes(m)}">${MOD[m].label}</button>`).join('')}</div>
+        <input type="hidden" data-cf="frecuenciasActivas" value="${esc(c.frecuenciasActivas||MOD_ORDEN.join(','))}">
+        <span class="small muted">Solo las marcadas se pueden elegir en solicitudes nuevas, en la aprobación y en el simulador. Los préstamos que ya existen no cambian.</span></div>
       <div class="field full"><label for="cf-cd">Número de cuotas</label><select id="cf-cd" data-cf="cuotasDiferenciadas"><option value="no" ${c.cuotasDiferenciadas!=='si'?'selected':''}>Calculado según el plazo (recomendado)</option><option value="si" ${c.cuotasDiferenciadas==='si'?'selected':''}>Permitir cuotas diferenciadas</option></select>
         <span class="small muted">Con cuotas diferenciadas, el número sugerido se puede cambiar en el simulador y al aprobar una solicitud (solo quien tiene permiso de aprobar).</span></div>
     </div>
@@ -1174,6 +1188,35 @@ function opcionesCredito(tipo) {
   return tipo === 'ASALARIADO'
     ? { sectores: ['CONSUMO'], destinos: ['CONSUMO', 'RESTRUCTURACION'] }
     : { sectores: ['COMERCIO', 'PRODUCCION', 'SERVICIO'], destinos: ['CAPITAL TRABAJO', 'RESTRUCTURACION'] };
+}
+/* === Primer pago a petición del cliente (idéntico en la app y el servidor) ===
+   El cliente puede pedir que su primera cuota caiga otro día (ej. miércoles en vez de lunes).
+   Las demás cuotas siguen la frecuencia desde esa fecha. Si se configuró, se cobran los días de interés
+   adicionales en la primera cuota: 1 día de diferencia = sin cargo; 2 días = 1 día de interés; 3 días = 2 días… */
+function fechaPeriodoAntes(f, mod) {
+  if (mod === 'DIARIO') return addDays(f, -1);
+  if (mod === 'SEMANAL') return addDays(f, -7);
+  if (mod === 'CATORCENAL') return addDays(f, -14);
+  if (mod === 'QUINCENAL') return addDays(f, -8);
+  const d = toD(f); return toS(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 1, Math.min(d.getUTCDate(), lastDay(d.getUTCFullYear(), d.getUTCMonth() - 1 < 0 ? 11 : d.getUTCMonth() - 1)))));
+}
+/** Fechas de las cuotas respetando el primer pago pedido (si es posterior al desembolso). */
+function fechasConPrimerPago(fecha, mod, n, cal, primer) {
+  if (!primer || primer <= fecha) return fechasCuotas(fecha, mod, n, cal);
+  const resto = fechasCuotas(fechaPeriodoAntes(primer, mod), mod, n, cal);
+  if (cal.esDiaCobro(primer)) resto[0] = primer;
+  for (let i = 1; i < resto.length; i++) if (resto[i] <= resto[i - 1]) resto[i] = cal.siguiente(addDays(resto[i - 1], 1));
+  return resto;
+}
+/** Días que se corre la primera cuota y días de interés a cobrar por eso. */
+function ajustePrimerPago(fecha, mod, cal, primer, monto, interesMensual, aplicar) {
+  const natural = fechasCuotas(fecha, mod, 1, cal)[0];
+  if (!primer || primer <= fecha) return { natural, primer: natural, dias: 0, diasInteres: 0, interesExtra: 0 };
+  const real = fechasConPrimerPago(fecha, mod, 1, cal, primer)[0];
+  // aplicar: 'si' = días − 1 (1 día no se cobra) · 'todos' = todos los días · 'no' = sin cargo
+  const modo = aplicar === true ? 'si' : aplicar === false ? 'no' : String(aplicar || 'si');
+  const dias = diffDays(real, natural), diasInteres = modo === 'no' ? 0 : modo === 'todos' ? Math.max(0, dias) : Math.max(0, dias - 1);
+  return { natural, primer: real, dias, diasInteres, interesExtra: r2(Number(monto) * Number(interesMensual) / 30 * diasInteres) };
 }
 /* === Formatos únicos de cédula y teléfono (idénticos en la app y el servidor) === */
 // Cédula nicaragüense: 000-000000-0000A · Teléfono o celular: 0000-0000
@@ -1362,6 +1405,7 @@ function nuevaSolicitudDatos(cid){
   const d=Object.assign({tipoCredito:'MICROCREDITO',sector:'COMERCIO',destino:'CAPITAL TRABAJO',frecuencia:'SEMANAL',plazoMeses:3,lugarCobro:'NEGOCIO',promotor:ME.name||ME.id,gestor:ME.id||'',
     cliente:{},conyuge:{},negocio:{},referencias:[{},{}],ventas:{buenas:[0,0,0,0,0],regulares:[0,0,0,0,0],malas:[0,0,0,0,0]},fiador:{},sinFiador:false},base,{declaracion:false,montoSolicitado:base.montoSolicitado||''});
   if(SIM_PREFILL){Object.assign(d,SIM_PREFILL);SIM_PREFILL=null}
+  if(d.frecuencia&&!frecuenciasActivas().includes(d.frecuencia))d.frecuencia=frecuenciasActivas().length===1?frecuenciasActivas()[0]:'';
   if(c){d.cliente=Object.assign({},d.cliente,{nombres:c.nombres,apellidos:c.apellidos,cedula:c.cedula,telefono:c.telefono,direccion:c.direccion,profesion:c.profesion,edad:c.edad,
     sexo:c.sexo,estadoCivil:c.estadoCivil,departamento:c.departamento||deptoDeMunicipio(c.municipio)||d.cliente.departamento||'',municipio:c.municipio||d.cliente.municipio,barrio:c.barrio||d.cliente.barrio});
     d.clienteId=c.id;
@@ -1423,8 +1467,8 @@ function normalizarSolCli(d){if(!d)return d;const fc=(o,k)=>{if(o&&o[k])o[k]=for
 const telVer=t=>{const d=String(t||'').replace(/\D/g,'');return d.length===8?formatoTelefono(d):t||''};
 function cuotaEstimada(d,base){
   const monto=Number(d.montoSolicitado)||0,meses=Number(d.plazoMeses)||0,m=MOD[d.frecuencia];if(!(monto>0&&meses>0&&m))return null;
-  const n=Math.max(1,Math.round(meses*m.porMes));const cu=generarCuotas({fecha:base||hoyS(),monto,interes:Number(CONFIG.interesDefault||15)/100,meses,modalidad:d.frecuencia,nCuotas:n});
-  return {n,cuota:cu[0].total,primer:cu[0].fecha,dia:toD(cu[0].fecha).toLocaleDateString('es-NI',{weekday:'long',timeZone:'UTC'})};
+  const n=Math.max(1,Math.round(meses*m.porMes));const cu=generarCuotas({primerPago:d.primerPagoDeseado||'',fecha:base||hoyS(),monto,interes:Number(CONFIG.interesDefault||15)/100,meses,modalidad:d.frecuencia,nCuotas:n});
+  return {n,cuota:(cu[1]||cu[0]).total,primera:cu[0].total,primer:cu[0].fecha,dia:toD(cu[0].fecha).toLocaleDateString('es-NI',{weekday:'long',timeZone:'UTC'})};
 }
 
 /* ---- campos ---- */
@@ -1477,9 +1521,10 @@ function vistaPaso1(sol,cidNueva){
   <section class="panel pad stack"><h2>Datos del crédito</h2>
     <div class="fgrid">${fi('promotor','Nombre del promotor',{ro})}${fi('gestor','Gestor de crédito',{ro,opts:usuarios})}</div>
     ${seg('tipoCredito','Tipo de crédito',TIPOS_CRED,ro)}${seg('sector','Sector económico',SECTORES.filter(([k])=>opcionesCredito(SOLD.tipoCredito).sectores.includes(k)),ro)}${seg('destino','Destino del crédito',DESTINOS.filter(([k])=>opcionesCredito(SOLD.tipoCredito).destinos.includes(k)),ro)}
-    <div class="fgrid">${fi('montoSolicitado','Monto solicitado (C$)',{ro,num:1})}${fi('frecuencia','Frecuencia',{ro,opts:MOD_ORDEN.map(m=>[m,MOD[m].label])})}
+    <div class="fgrid">${fi('montoSolicitado','Monto solicitado (C$)',{ro,num:1})}${fi('frecuencia','Frecuencia',{ro,opts:frecuenciasPara(SOLD.frecuencia).map(m=>[m,MOD[m].label])})}
     ${fi('plazoMeses','Plazo (meses)',{ro,num:1})}<div class="field"><label>Cuota estimada</label><div class="calc" id="sCuota">—</div></div>
-    <div class="field"><label>Día de pago</label><div class="calc" id="sDia">—</div></div><div class="field"><label>Primer fecha de pago</label><div class="calc" id="sPrimer">—</div></div></div>
+    <div class="field"><label>Día de pago</label><div class="calc" id="sDia">—</div></div><div class="field"><label for="sf-primerPagoDeseado">Primer fecha de pago</label><input type="date" id="sf-primerPagoDeseado" data-sf="primerPagoDeseado" value="${esc(SOLD.primerPagoDeseado||'')}" min="${addDays(hoyS(),1)}" ${ro}>
+      <span class="small muted" id="sPrimer">—</span></div></div>
     ${seg('lugarCobro','Lugar de cobro',LUGARES,ro)}
   </section>
   <section class="panel pad stack"><h2>Información del cliente</h2>
@@ -1514,7 +1559,8 @@ function actualizarProgreso(){
   const box=$('#progSol');if(!box||!SOLD)return;
   const falt=faltantesSolicitud(SOLD);const total=51;const pct=Math.max(0,Math.min(100,Math.round((1-falt.length/total)*100)));
   const sol=SOLID&&!SOLID.startsWith('nueva')?S.solicitudes[SOLID]:null;const editable=!sol||['BORRADOR','COMPLETA'].includes(sol.estado);
-  const ce=cuotaEstimada(SOLD);if($('#sCuota'))$('#sCuota').textContent=ce?fmt(ce.cuota)+` (${ce.n} cuotas)`:'—';if($('#sDia'))$('#sDia').textContent=ce?ce.dia[0].toUpperCase()+ce.dia.slice(1):'—';if($('#sPrimer'))$('#sPrimer').textContent=ce?fF(ce.primer):'—';
+  const ce=cuotaEstimada(SOLD);if($('#sCuota'))$('#sCuota').textContent=ce?fmt(ce.cuota)+` (${ce.n} cuotas)`+(ce.primera!==ce.cuota?` · primera ${fmt(ce.primera)}`:''):'—';if($('#sDia'))$('#sDia').textContent=ce?ce.dia[0].toUpperCase()+ce.dia.slice(1):'—';if($('#sPrimer')){const nat=ce?fechasCuotas(hoyS(),SOLD.frecuencia,1,calendarioActual())[0]:'';const aj=ce&&SOLD.primerPagoDeseado?ajustePrimerPago(hoyS(),SOLD.frecuencia,calendarioActual(),SOLD.primerPagoDeseado,SOLD.montoSolicitado,Number(CONFIG.interesDefault||15)/100,CONFIG.ajusteInteresPrimeraCuota||'si'):null;
+    $('#sPrimer').textContent=!ce?'':!SOLD.primerPagoDeseado?`Normal: ${fF(nat)}. Cámbiala si el cliente lo pide.`:aj.dias?`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'} (normal ${fF(nat)})${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés (${fmt(aj.interesExtra)}) en la primera cuota`:''}`:'Es la fecha normal.'}
   ['buenas','regulares','malas'].forEach(k=>{const el=$(`[data-vtot="${k}"]`);if(el)el.textContent=n2((SOLD.ventas?.[k]||[]).reduce((a,x)=>a+(Number(x)||0),0))});
   if($('#vSem'))$('#vSem').textContent=n2(totalVentasSemana(SOLD));
   // El panel se arma una sola vez y luego solo se actualiza, para no perder clics mientras se escribe
@@ -1552,9 +1598,9 @@ function vistaPaso2(sol){
   if(sol.estado==='BORRADOR')return `<div class="panel empty">Completa la solicitud para pasar a la aprobación. <a href="#/solicitud/${sol.id}/1">Ir a la solicitud</a></div>`;
   const d=sol.datos,ap=sol.aprobacion;const puedeAprobar=puede('solicitudes.aprobar')&&sol.estado==='COMPLETA';
   if(!APD||APD.id!==sol.id){const n=Math.round((Number(d.plazoMeses)||3)*(MOD[d.frecuencia]?.porMes||4));
-    APD=ap?{id:sol.id,...ap}:{id:sol.id,monto:d.montoSolicitado,meses:d.plazoMeses,frecuencia:d.frecuencia,nCuotas:cuotasDe(d.plazoMeses||3,d.frecuencia),interes:Number(CONFIG.interesDefault||15),tasaMora:Number(CONFIG.moraDefault||2),fechaDesembolso:hoyS(),destino:d.destino,cobradorId:(rutaDe(cliente(sol.clienteId))?.cobradorId)||d.gestor||'',observacion:''}}
+    APD=ap?{id:sol.id,...ap}:{id:sol.id,monto:d.montoSolicitado,meses:d.plazoMeses,frecuencia:d.frecuencia,nCuotas:cuotasDe(d.plazoMeses||3,d.frecuencia),interes:Number(CONFIG.interesDefault||15),tasaMora:Number(CONFIG.moraDefault||2),fechaDesembolso:hoyS(),primerPagoPedido:d.primerPagoDeseado||'',destino:d.destino,cobradorId:(rutaDe(cliente(sol.clienteId))?.cobradorId)||d.gestor||'',observacion:''}}
   const a=APD;const ant=creditoAnterior(sol.clienteId,sol.prestamoId);
-  const cu=(Number(a.monto)>0&&Number(a.meses)>0&&Number(a.nCuotas)>=1&&MOD[a.frecuencia])?generarCuotas({fecha:sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso),monto:Number(a.monto),interes:Number(a.interes)/100,meses:Number(a.meses),modalidad:a.frecuencia,nCuotas:Math.round(a.nCuotas)}):[];
+  const cu=(Number(a.monto)>0&&Number(a.meses)>0&&Number(a.nCuotas)>=1&&MOD[a.frecuencia])?generarCuotas({primerPago:a.primerPagoPedido||'',fecha:sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso),monto:Number(a.monto),interes:Number(a.interes)/100,meses:Number(a.meses),modalidad:a.frecuencia,nCuotas:Math.round(a.nCuotas)}):[];
   const ro=!puedeAprobar;const inp=(k,l,num,t='text')=>`<div class="field"><label for="ap-${k}">${l}</label><input id="ap-${k}" type="${t}" data-ap="${k}" value="${esc(a[k]??'')}" ${num?'inputmode="decimal"':''} ${t==='date'&&!ro?`min="${hoyS()}"`:''} ${ro?'disabled':''}></div>`;
   const ce=cuotaEstimada(d,['DESEMBOLSADA','DENEGADA'].includes(sol.estado)?sol.fecha:null);
   // El aviso de represtamo solo aplica mientras la solicitud no se ha desembolsado (ni denegado)
@@ -1583,9 +1629,11 @@ function vistaPaso2(sol){
     ${puedeAprobar?'':sol.estado==='COMPLETA'?'<div class="notice">Un supervisor o administrador debe aprobar las condiciones.</div>':''}
   </section>
   <section class="panel pad stack"><h2>Condiciones aprobadas</h2>
-    <div class="fgrid">${inp('monto','Monto aprobado (C$)',1)}<div class="field"><label for="ap-frecuencia">Frecuencia</label><select id="ap-frecuencia" data-ap="frecuencia" ${ro?'disabled':''}>${MOD_ORDEN.map(m=>`<option value="${m}" ${a.frecuencia===m?'selected':''}>${MOD[m].label}</option>`).join('')}</select></div>
+    <div class="fgrid">${inp('monto','Monto aprobado (C$)',1)}<div class="field"><label for="ap-frecuencia">Frecuencia</label><select id="ap-frecuencia" data-ap="frecuencia" ${ro?'disabled':''}>${frecuenciasPara(a.frecuencia).map(m=>`<option value="${m}" ${a.frecuencia===m?'selected':''}>${MOD[m].label}</option>`).join('')}</select></div>
     ${inp('meses','Plazo (meses)',1)}${campoCuotas('ap',a.nCuotas,cuotasDe(a.meses,a.frecuencia),a.manual,!ro)}${inp('interes','Interés mensual (%)',1)}${inp('tasaMora','Mora mensual (%)',1)}
     ${inp('fechaDesembolso','Fecha prevista de desembolso',0,'date')}
+    <div class="field"><label for="ap-primerPagoPedido">Primer pago (a petición del cliente)</label><input id="ap-primerPagoPedido" type="date" data-ap="primerPagoPedido" value="${esc(a.primerPagoPedido||'')}" ${ro?'disabled':''}>
+      <span class="small muted">${(()=>{if(!MOD[a.frecuencia])return '';const b=sol.prestamoId?a.fechaDesembolso:fechaBasePlan(a.fechaDesembolso);const nat=fechasCuotas(b,a.frecuencia,1,calendarioActual())[0];if(!a.primerPagoPedido)return 'Vacío = fecha normal ('+fF(nat)+').';const aj=ajustePrimerPago(b,a.frecuencia,calendarioActual(),a.primerPagoPedido,a.monto,Number(a.interes)/100,CONFIG.ajusteInteresPrimeraCuota||'si');return a.primerPagoPedido<=b?'Debe ser posterior al desembolso.':`Se corre ${aj.dias} ${Math.abs(aj.dias)===1?'día':'días'} (normal ${fF(nat)})${aj.diasInteres?` · +${aj.diasInteres} ${aj.diasInteres===1?'día':'días'} de interés: ${fmt(aj.interesExtra)} en la primera cuota`:''}.`})()}</span></div>
     <div class="field"><label for="ap-destino">Destino</label><select id="ap-destino" data-ap="destino" ${ro?'disabled':''}>${DESTINOS.filter(([k])=>opcionesCredito(d.tipoCredito).destinos.includes(k)||k===a.destino).map(([k,t])=>`<option value="${k}" ${a.destino===k?'selected':''}>${t}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-cob">Gestor / cobrador asignado</label><select id="ap-cob" data-ap="cobradorId" ${ro?'disabled':''}><option value="">Sin asignar</option>${cobradores().map(u=>`<option value="${esc(u)}" ${u===a.cobradorId?'selected':''}>${esc(quien(u))}</option>`).join('')}</select></div>
     <div class="field full"><label for="ap-obs">Observación</label><input id="ap-obs" data-ap="observacion" value="${esc(a.observacion||'')}" ${ro?'disabled':''}></div></div>
@@ -1786,7 +1834,7 @@ const fechaBasePlan=f=>!f||f<hoyS()?hoyS():f;
 function planDeSolicitud(sol){
   const ap=sol.aprobacion;const p=sol.prestamoId?S.prestamos[sol.prestamoId]:null;
   const base=fechaBasePlan(ap.fechaDesembolso);
-  const cu=p?p.cuotas:generarCuotas({fecha:base,monto:ap.monto,interes:ap.interes/100,meses:ap.meses,modalidad:ap.frecuencia,nCuotas:ap.nCuotas});
+  const cu=p?p.cuotas:generarCuotas({primerPago:ap.primerPagoPedido||'',fecha:base,monto:ap.monto,interes:ap.interes/100,meses:ap.meses,modalidad:ap.frecuencia,nCuotas:ap.nCuotas});
   return {nombreCli:nombreSol(sol),cedula:sol.datos.cliente?.cedula,codigoCli:sol.clienteId,nCredito:p?p.id:'Por desembolsar (solicitud '+sol.numero+')',fechaDes:p?p.fecha:base,cuotas:cu,frecuencia:ap.frecuencia,meses:ap.meses,gestor:nomU(ap.cobradorId),telGestor:'',proyectado:!p};
 }
 function planDePrestamo(p){const c=cliente(p.clienteId);return {nombreCli:nombre(c),cedula:c?.cedula,codigoCli:p.clienteId,nCredito:p.id,fechaDes:p.fecha,cuotas:p.cuotas,frecuencia:p.modalidad,meses:p.meses,gestor:nomU(p.cobradorId),telGestor:''}}
@@ -2144,7 +2192,7 @@ function campoCuotas(pref,valor,calculado,manual,editable){
   return `<div class="field"><label for="${pref}-nCuotasIn">Número de cuotas</label><input id="${pref}-nCuotasIn" inputmode="numeric" data-${pref}cuotas value="${esc(valor)}">
     <span class="small muted" id="${pref}-nCuotasNota">${manual&&Number(valor)!==calculado?`Diferenciadas · según el plazo serían ${calculado}. <a href="javascript:void 0" data-${pref}auto>Usar ${calculado}</a>`:'Calculadas según el plazo; puedes cambiarlas.'}</span></div>`;
 }
-function simIni(){if(SIM.interes==null)SIM.interes=Number(CONFIG.interesDefault||15);if(SIM.mora==null)SIM.mora=Number(CONFIG.moraDefault||2);if(!SIM.fecha)SIM.fecha=hoyS();if(!SIM.manual||!cuotasLibres()){SIM.manual=false;SIM.nCuotas=cuotasDe(SIM.meses,SIM.modalidad)}}
+function simIni(){if(!frecuenciasActivas().includes(SIM.modalidad))SIM.modalidad=frecuenciasActivas().includes('SEMANAL')?'SEMANAL':frecuenciasActivas()[0];if(SIM.interes==null)SIM.interes=Number(CONFIG.interesDefault||15);if(SIM.mora==null)SIM.mora=Number(CONFIG.moraDefault||2);if(!SIM.fecha)SIM.fecha=hoyS();if(!SIM.manual||!cuotasLibres()){SIM.manual=false;SIM.nCuotas=cuotasDe(SIM.meses,SIM.modalidad)}}
 function simCalcular(mod,n){
   const monto=Number(SIM.monto),meses=Number(SIM.meses),i=Number(SIM.interes)/100;
   if(!(monto>0&&meses>0&&n>=1&&n<=400&&i>=0))return null;
@@ -2161,7 +2209,7 @@ VIEWS.simulador=()=>{
   <div class="grid2" style="align-items:start">
   <section class="panel pad stack">
     <div class="fgrid">${f('monto','Monto solicitado (C$)')}${f('meses','Plazo (meses)')}${f('interes','Interés mensual (%)')}${f('mora','Mora mensual (%)')}</div>
-    <div class="field"><label>Modalidad de pago</label><div class="seg" role="group" aria-label="Modalidad">${MOD_ORDEN.map(m=>`<button type="button" data-simmod="${m}" aria-pressed="${SIM.modalidad===m}">${MOD[m].label}</button>`).join('')}</div>
+    <div class="field"><label>Modalidad de pago</label><div class="seg" role="group" aria-label="Modalidad">${frecuenciasPara(SIM.modalidad).map(m=>`<button type="button" data-simmod="${m}" aria-pressed="${SIM.modalidad===m}">${MOD[m].label}</button>`).join('')}</div>
       <span class="small muted" id="simTxt">${esc(MOD[SIM.modalidad].txt)}</span></div>
     <div class="fgrid">${campoCuotas('sim',SIM.nCuotas,cuotasDe(SIM.meses,SIM.modalidad),SIM.manual,true)}${f('fecha','Fecha de desembolso',{type:'date'})}${f('ingreso','Ingreso mensual del cliente (opcional)',{full:1,ph:'Para revisar la capacidad de pago'})}</div>
     <div class="row"><button class="btn sm" data-simreset>Restablecer</button></div>
@@ -2185,7 +2233,7 @@ function pintarSimulacion(){
     <div><span>Mora por día de atraso</span><b>${fmt(md)}</b></div><div><span>Equivale a pagar al mes</span><b>${fmt(mensual)}</b></div></div>
     ${pct!=null?`<div class="notice" style="${pct>40?'background:var(--late-soft);color:var(--late)':pct>30?'background:var(--due-soft);color:var(--due)':'background:var(--brand-soft);color:var(--brand)'}">La cuota equivale al <b>${pct}%</b> del ingreso mensual. ${pct>40?'Supera el 40%: el cliente difícilmente podrá pagar; reduce el monto o amplía el plazo.':pct>30?'Entre 30% y 40%: aceptable solo con buen historial.':'Dentro de un rango sano (hasta 30%).'}</div>`:''}
     <div class="row">${puede('solicitudes.crear')?'<button class="btn primary" data-simsol>Iniciar solicitud con estos datos</button>':''}<button class="btn" data-simprint>Imprimir simulación</button></div>`;
-  const comp=MOD_ORDEN.map(m=>({m,r:simCalcular(m,Math.max(1,Math.round(Number(SIM.meses)*MOD[m].porMes)))})).filter(x=>x.r);
+  const comp=frecuenciasActivas().map(m=>({m,r:simCalcular(m,Math.max(1,Math.round(Number(SIM.meses)*MOD[m].porMes)))})).filter(x=>x.r);
   $('#simComp').innerHTML=`<div class="pad"><h2>Comparar modalidades</h2><p class="small muted" style="margin:4px 0 0">Mismo monto, plazo e interés, con el número de cuotas sugerido para cada modalidad.</p></div>
   <div class="tablewrap"><table><thead><tr><th>Modalidad</th><th class="num">Cuotas</th><th class="num">Cuota</th><th class="num">Total a pagar</th><th>Primer pago</th><th>Último pago</th><th></th></tr></thead><tbody>
   ${comp.map(x=>`<tr style="${x.m===SIM.modalidad?'background:var(--brand-soft)':''}"><td><b>${MOD[x.m].label}</b></td><td class="num">${x.r.n}</td><td class="num">${fmt(x.r.cuota)}</td><td class="num">${fmt(x.r.total)}</td><td>${fFc(x.r.primer)}</td><td>${fFc(x.r.ultimo)}</td><td>${x.m===SIM.modalidad?'<span class="pill p-ok">Elegida</span>':`<button class="btn sm" data-simmod="${x.m}">Usar</button>`}</td></tr>`).join('')}</tbody></table></div>`;
@@ -2653,8 +2701,9 @@ VIEWS.prestamo=id=>{
       ${p.liquidadoPor?`<dt>Liquidado por</dt><dd>Represtamo <a href="#/prestamo/${esc(p.liquidadoPor)}">${esc(p.liquidadoPor)}</a></dd>`:''}
       <dt>Desembolso</dt><dd>${fF(p.fecha)}</dd>
       <dt>Plazo</dt><dd>${p.meses} ${p.meses==1?'mes':'meses'}, ${p.nCuotas} cuotas ${MOD[p.modalidad]?.txt}</dd>
-      <dt>Interés</dt><dd>${r2(p.interes*100)}% mensual · ${fmt(intTotal)} en total</dd>
-      <dt>Total a pagar</dt><dd>${fmt(p.monto+intTotal)}</dd>
+      <dt>Interés</dt><dd>${r2(p.interes*100)}% mensual · ${fmt(intTotal+(Number(p.interesAjuste)||0))} en total${Number(p.interesAjuste)?` <span class="small muted">(incluye ${fmt(p.interesAjuste)} por correr el primer pago)</span>`:''}</dd>
+      <dt>Total a pagar</dt><dd>${fmt(p.monto+intTotal+(Number(p.interesAjuste)||0))}</dd>
+      ${p.primerPago?`<dt>Primer pago</dt><dd>${fF(p.primerPago)} <span class="small muted">(a petición del cliente)</span></dd>`:''}
       <dt>Mora</dt><dd>${r2(p.tasaMora*100)}% mensual · ${fmt(r.diario)} por día de atraso</dd>
       ${p.tipo?`<dt>Tipo</dt><dd>${esc(p.tipo)}${p.destino?' · '+esc(p.destino):''}</dd>`:''}
       ${p.lugarCobro?`<dt>Lugar de cobro</dt><dd>${esc(p.lugarCobro)}</dd>`:''}
@@ -3012,6 +3061,8 @@ document.addEventListener('click',e=>{
   else if(d.resetpw)modalReset(d.resetpw);
   else if(d.confirmreset){const id=d.confirmreset,pw=$('#r-pass').value;closeModal();llamar('restablecerClave',[id,pw],null,{force:true}).then(r=>{if(r)openModal(`<h2>Contraseña restablecida</h2><div class="receipt"><div class="ln"><span>Usuario</span><b>${esc(id)}</b></div><div class="ln"><span>Contraseña temporal</span><b>${esc(pw)}</b></div></div><button class="btn primary" data-close style="width:100%;padding:12px;margin-top:12px">Listo</button>`)})}
   else if('salir' in d)salir();
+  else if(d.cffrec){const h=$('[data-cf="frecuenciasActivas"]');let l=h.value.split(',').filter(Boolean);l=l.includes(d.cffrec)?l.filter(x=>x!==d.cffrec):[...l,d.cffrec];
+    if(!l.length){toast('Debe quedar al menos una frecuencia');return}h.value=MOD_ORDEN.filter(m=>l.includes(m)).join(',');t.setAttribute('aria-pressed',l.includes(d.cffrec));marcarAjustes()}
   else if('avisos' in d){modalAvisos()}
   else if(d.avisok){marcarAvisosVistos([d.avisok]);closeModal();setTimeout(pintarCampana,50)}
   else if('avisosleidos' in d){marcarAvisosVistos(avisosParaMi().map(a=>a.k));closeModal();pintarCampana();toast('Avisos marcados como leídos')}
