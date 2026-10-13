@@ -520,7 +520,7 @@ const ME={id:null,name:'',rol:null,esPropietario:false,inactivo:false,solicitud:
 let USERS={miembros:{}};
 let DATA_V='',VERSION_SERVIDOR=null;
 // La app necesita esta versión de Code.gs; si el servidor es más viejo, se avisa al administrador
-const VERSION_API_REQUERIDA='2026.10.12-primerpago2';
+const VERSION_API_REQUERIDA='2026.10.13-sync';
 function servidorDesactualizado(){return mode==='gas'&&VERSION_SERVIDOR!==null&&VERSION_SERVIDOR!==VERSION_API_REQUERIDA}
 function avisoServidor(){if(!servidorDesactualizado()||!(ME.rol==='admin'||ME.esPropietario))return '';
   return `<div class="notice" style="background:var(--due-soft);color:var(--due)"><b>El servidor de Apps Script está desactualizado.</b> Algunas opciones nuevas (como el Respaldo de información) no aparecerán hasta que reemplaces <b>Code.gs</b> y <b>appsscript.json</b>, ejecutes <i>instalar</i> y publiques una <b>versión nueva</b> de la implementación. Versión del servidor: ${esc(VERSION_SERVIDOR||'anterior')} · requerida: ${VERSION_API_REQUERIDA}.</div>`}
@@ -679,7 +679,9 @@ async function actualizarAhora(manual){
 function textoAct(){if(ACTUALIZANDO)return 'Actualizando…';const m=Math.floor((Date.now()-ULT_ACT)/60000);return (FALLO_ACT?FALLO_ACT+' · ':'')+'Actualizado '+(m<1?'hace un momento':m===1?'hace 1 min':m<60?`hace ${m} min`:'hace más de una hora')}
 function pintarEstadoAct(){const el=$('#estadoAct');if(el){el.querySelector('span').textContent=textoAct();el.classList.toggle('mal',!!FALLO_ACT)}}
 // Actualiza cada 60 s para ver lo que registran otros usuarios, y también al volver a la app (por ejemplo, al desbloquear el celular)
-setInterval(()=>{actualizarAhora(false);pintarEstadoAct()},60000);
+// Cada cuánto se buscan cambios de otros usuarios: 30 o 60 segundos (Ajustes → Herramientas)
+const intervaloSync=()=>Math.min(60,Math.max(30,Math.round(Number(CONFIG.intervaloSync))||30))*1000;
+(function cicloSync(ms){setTimeout(()=>{actualizarAhora(false);pintarEstadoAct();cicloSync(intervaloSync())},ms)})(30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-ULT_ACT>15000)setTimeout(()=>actualizarAhora(false),300)});
 window.addEventListener('focus',()=>{if(Date.now()-ULT_ACT>15000)actualizarAhora(false)});
 let ENTRANDO=false;
@@ -879,9 +881,12 @@ VIEWS.usuarios=()=>{
   </div>`;
 };
 /* ---- auditoría ---- */
-const AUDV={f:{desde:'',hasta:'',usuario:'',modulo:'',resultado:'',texto:''},filas:null,total:0,coinciden:0,cargando:false,integridad:null};
+// Por defecto la auditoría muestra solo la última semana, para cargar rápido
+const filtrosAudSemana=()=>({desde:addDays(hoyS(),-6),hasta:hoyS(),usuario:'',modulo:'',resultado:'',texto:''});
+const AUDV={f:null,filas:null,total:0,coinciden:0,cargando:false,integridad:null};
 const MODULOS_AUD=['Sesión','Cartera','Clientes','Préstamos','Pagos','Usuarios','Auditoría','App','Sistema'];
 async function cargarAuditoria(){
+  if(!AUDV.f)AUDV.f=filtrosAudSemana();
   if(AUDV.cargando)return;AUDV.cargando=true;if(route.name==='auditoria')render(true);
   try{const r=await api('consultarAuditoria',{...AUDV.f,limite:300});AUDV.filas=r.filas;AUDV.total=r.total;AUDV.coinciden=r.coinciden}
   catch(e){toast(e.message)}
@@ -892,6 +897,7 @@ function fHora(ts){try{return new Date(ts).toLocaleString('es-NI',{day:'numeric'
 VIEWS.auditoria=()=>{
   if(!puede('auditoria.ver'))return sinPermiso();
   if(AUDV.filas===null&&!AUDV.cargando)setTimeout(cargarAuditoria,0);
+  if(!AUDV.f)AUDV.f=filtrosAudSemana();
   const f=AUDV.f,us=Object.keys(USERS.miembros||{}).sort();
   const it=AUDV.integridad;
   return `${topbar('Auditoría','<button class="btn sm" data-audcsv>Exportar CSV</button>')}
@@ -944,7 +950,7 @@ function exportarAuditoriaCSV(){
   api('registrarEvento','exportarAuditoria',l.length+' filas · filtros '+JSON.stringify(AUDV.f)).catch(()=>{});
 }
 /* ---- recibos de pago ---- */
-let CONFIG={ajusteInteresPrimeraCuota:'si',frecuenciasActivas:'DIARIO,SEMANAL,CATORCENAL,QUINCENAL,MENSUAL',mostrarDiagnostico:'no',toleranciaPago:'1',autorizadorDesembolsos:'',cuotasDiferenciadas:'no',cierreNocturno:'si',horaCierre:'22:00',diasCobro:'1,2,3,4,5',excluirFeriados:'si',semanaSanta:'si',feriados:FERIADOS_NIC,empresa:'APPKREDINOVA',sucursal:'',telefono:'',ruc:'',direccion:'',pie:'Gracias por su pago',papel:'58',represtamoMinPct:'50',represtamoMaxAtraso:'0',garantiaMinPct:'100',interesDefault:'15',moraDefault:'2',moneda:'CORDOBA'};
+let CONFIG={intervaloSync:'30',ajusteInteresPrimeraCuota:'si',frecuenciasActivas:'DIARIO,SEMANAL,CATORCENAL,QUINCENAL,MENSUAL',mostrarDiagnostico:'no',toleranciaPago:'1',autorizadorDesembolsos:'',cuotasDiferenciadas:'no',cierreNocturno:'si',horaCierre:'22:00',diasCobro:'1,2,3,4,5',excluirFeriados:'si',semanaSanta:'si',feriados:FERIADOS_NIC,empresa:'APPKREDINOVA',sucursal:'',telefono:'',ruc:'',direccion:'',pie:'Gracias por su pago',papel:'58',represtamoMinPct:'50',represtamoMaxAtraso:'0',garantiaMinPct:'100',interesDefault:'15',moraDefault:'2',moneda:'CORDOBA'};
 const n2=x=>(Number(x)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 function fHoraCorta(iso){try{const d=new Date(iso);return d.toLocaleDateString('es-NI',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+d.toLocaleTimeString('es-NI',{hour:'2-digit',minute:'2-digit',hour12:false})}catch(e){return iso||''}}
 // Datos de un recibo a partir del pago guardado
@@ -1072,6 +1078,8 @@ VIEWS.ajustes=()=>{
     </div>
     <span class="small muted">La sesión sigue activa mientras el usuario esté usando la app, aunque pase la hora de cierre. Si a esa hora la app no se está usando (más de 30 minutos sin uso), la sesión se cierra y al día siguiente hay que volver a entrar con la contraseña. Además, toda sesión se cierra tras 6 horas sin uso.</span>
     <h3 style="margin-top:6px">Herramientas</h3>
+    <div class="field"><label for="cf-sync">Sincronización con otros usuarios</label><div class="row" style="flex-wrap:nowrap;gap:8px"><input id="cf-sync" data-cf="intervaloSync" type="number" min="30" max="60" step="1" inputmode="numeric" value="${esc(c.intervaloSync||30)}" style="max-width:110px"><span class="small">segundos</span></div>
+      <span class="small muted">Entre <b>30 y 60 segundos</b>. Menos segundos = los cambios de los demás se ven antes; más segundos = menos carga para el servidor (útil con muchos usuarios conectados a la vez).</span></div>
     <div class="field"><label for="cf-diag">Diagnóstico de préstamos</label><select id="cf-diag" data-cf="mostrarDiagnostico"><option value="no" ${c.mostrarDiagnostico!=='si'?'selected':''}>Ocultar el botón Diagnóstico</option><option value="si" ${c.mostrarDiagnostico==='si'?'selected':''}>Mostrar el botón Diagnóstico</option></select>
       <span class="small muted">Compara lo que hay en la hoja de cálculo con lo que muestra la app para un préstamo. Actívalo solo cuando necesites revisar un caso; lo ven quienes tienen permiso de ver la auditoría.</span></div>
     <h3 style="margin-top:6px">Calendario de cobro</h3>
@@ -3193,7 +3201,7 @@ document.addEventListener('click',e=>{
   else if(d.sharerc)compartirRecibo(d.sharerc);
   else if('savecfg' in d){guardarAjustes();return}
   else if('audbuscar' in d){$$('[data-af]').forEach(i=>AUDV.f[i.dataset.af]=i.value.trim());AUDV.integridad=null;cargarAuditoria()}
-  else if('audlimpiar' in d){AUDV.f={desde:'',hasta:'',usuario:'',modulo:'',resultado:'',texto:''};AUDV.integridad=null;cargarAuditoria()}
+  else if('audlimpiar' in d){AUDV.f=filtrosAudSemana();AUDV.integridad=null;cargarAuditoria()}
   else if('audverif' in d){t.disabled=true;t.textContent='Verificando…';api('verificarAuditoria').then(r=>{AUDV.integridad=r;render(true)}).catch(e=>{toast(e.message);render(true)})}
   else if(d.audver!==undefined)modalAuditoria(Number(d.audver));
   else if('audcsv' in d)exportarAuditoriaCSV();
@@ -3228,6 +3236,7 @@ document.addEventListener('input',e=>{
   if(t.closest('#modal')&&$('[data-confirmpay]'))previewPago($('[data-confirmpay]').dataset.confirmpay);
 });
 document.addEventListener('change',e=>{const t=e.target;
+  if(t.id==='cf-sync'){const v=Math.min(60,Math.max(30,Math.round(Number(t.value))||30));if(String(v)!==t.value){t.value=v;toast('La sincronización debe estar entre 30 y 60 segundos')}t.dispatchEvent(new Event('input',{bubbles:true}))}
   if(t.dataset.gf){GF[t.dataset.gf]=t.value;render(true);return}
   if(t.dataset.gchk){GF[t.dataset.gchk]=t.checked;render(true);return}
   if(t.hasAttribute('data-rtact')&&RUTAD){RUTAD.f.activa=t.checked;return}
