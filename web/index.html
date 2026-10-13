@@ -268,6 +268,7 @@ table.ventas td,table.gar td,table.verif td{padding:4px}table.verif td.sn{white-
 .btn-campana{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none}
 .btn-campana svg{width:19px;height:19px}.btn-campana .badge{position:absolute;top:-4px;right:-4px;background:var(--late)}
 .punto{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--late);margin-right:6px;vertical-align:1px}
+.aj-tabs{flex-wrap:wrap;margin-bottom:4px}.aj-cambios{color:var(--due);font-weight:700}
 .falt{margin:0;padding-left:18px;font-size:.84rem;color:var(--due)}.falt li{margin:2px 0}
 hr.sep{border:0;border-top:1px dashed var(--line);margin:4px 0}
 table.cmp td,table.cmp th{white-space:normal}
@@ -1051,13 +1052,17 @@ function compartirRecibo(pgid){
   api('registrarEvento','compartirRecibo','Recibo '+(pg.recibo||'S/N')+(tel?' · '+tel:'')).catch(()=>{});
   window.open(`https://wa.me/${tel}?text=${encodeURIComponent(txt)}`,'_blank','noopener');
 }
+const AJ_TABS=[['recibo','Recibo, nombre y logos'],['seguridad','Seguridad'],['herramientas','Herramientas'],['calendario','Calendario'],['creditos','Represtamos y solicitudes']];
 VIEWS.ajustes=()=>{
+  if(!AJ_TABS.some(([k])=>k===ui.ajTab))ui.ajTab='recibo';
   setTimeout(()=>{const el=$('#cfProxFer');if(el)el.innerHTML=proximosFeriados(CONFIG);marcarAjustes()},0);
   if(!puede('config.editar'))return sinPermiso();
   const c=CONFIG;const f=(k,l,ph='')=>`<div class="field"><label for="cf-${k}">${l}</label><input id="cf-${k}" data-cf="${k}" value="${esc(c[k]||'')}" placeholder="${esc(ph)}" maxlength="120"></div>`;
   return `${topbar('Ajustes')}
   <div class="grid2" style="align-items:start">
   <section class="panel pad stack">
+    <div class="aj-tabs chips" role="tablist" aria-label="Secciones de ajustes">${AJ_TABS.map(([k,l])=>`<button type="button" class="chip" role="tab" data-ajtab="${k}" aria-pressed="${ui.ajTab===k}" aria-selected="${ui.ajTab===k}">${l}<span class="aj-cambios" data-ajcnt="${k}"></span></button>`).join('')}</div>
+    <div class="aj-panel stack" data-ajpanel="recibo" role="tabpanel" ${ui.ajTab==='recibo'?'':'hidden'}>
     ${f('empresa','Nombre del negocio','APPKREDINOVA')}
     <div class="fgrid">${f('sucursal','Sucursal o zona','LEÓN SUR')}<div class="field"><label for="cf-telefono">Teléfono</label><input id="cf-telefono" data-cf="telefono" value="${esc(telVer(c.telefono||''))}" ${attrMascara('tel')}></div></div>
     ${f('ruc','RUC o registro (opcional)')}${f('direccion','Dirección (opcional)')}
@@ -1071,29 +1076,17 @@ VIEWS.ajustes=()=>{
         <div class="row" style="margin-top:8px"><label class="btn sm"><input type="file" accept="image/png,image/jpeg,image/webp" data-logofile="${t}" hidden>Cambiar…</label>
         ${src!==base?`<button class="btn sm" data-logorest="${t}">Restaurar original</button>`:''}</div></div></div>`).join('')}
     </div>
-    <h3 style="margin-top:6px">Seguridad</h3>
+    
+    </div>
+    <div class="aj-panel stack" data-ajpanel="seguridad" role="tabpanel" ${ui.ajTab==='seguridad'?'':'hidden'}>
     <div class="fgrid">
       <div class="field"><label for="cf-cn">Cierre nocturno</label><select id="cf-cn" data-cf="cierreNocturno"><option value="si" ${c.cierreNocturno!=='no'?'selected':''}>Cerrar sesiones sin uso en la noche</option><option value="no" ${c.cierreNocturno==='no'?'selected':''}>No cerrar en la noche</option></select></div>
       <div class="field"><label for="cf-hc">Hora de cierre</label><input id="cf-hc" type="time" data-cf="horaCierre" value="${esc(/^\d{2}:\d{2}$/.test(c.horaCierre||'')?c.horaCierre:'22:00')}"></div>
     </div>
     <span class="small muted">La sesión sigue activa mientras el usuario esté usando la app, aunque pase la hora de cierre. Si a esa hora la app no se está usando (más de 30 minutos sin uso), la sesión se cierra y al día siguiente hay que volver a entrar con la contraseña. Además, toda sesión se cierra tras 6 horas sin uso.</span>
-    <h3 style="margin-top:6px">Herramientas</h3>
-    <div class="field"><label for="cf-sync">Sincronización con otros usuarios</label><div class="row" style="flex-wrap:nowrap;gap:8px"><input id="cf-sync" data-cf="intervaloSync" type="number" min="30" max="60" step="1" inputmode="numeric" value="${esc(c.intervaloSync||30)}" style="max-width:110px"><span class="small">segundos</span></div>
-      <span class="small muted">Entre <b>30 y 60 segundos</b>. Menos segundos = los cambios de los demás se ven antes; más segundos = menos carga para el servidor (útil con muchos usuarios conectados a la vez).</span></div>
-    <div class="field"><label for="cf-diag">Diagnóstico de préstamos</label><select id="cf-diag" data-cf="mostrarDiagnostico"><option value="no" ${c.mostrarDiagnostico!=='si'?'selected':''}>Ocultar el botón Diagnóstico</option><option value="si" ${c.mostrarDiagnostico==='si'?'selected':''}>Mostrar el botón Diagnóstico</option></select>
-      <span class="small muted">Compara lo que hay en la hoja de cálculo con lo que muestra la app para un préstamo. Actívalo solo cuando necesites revisar un caso; lo ven quienes tienen permiso de ver la auditoría.</span></div>
-    <h3 style="margin-top:6px">Calendario de cobro</h3>
-    <p class="small muted" style="margin:0">Se aplica a los planes de pago que se generen desde ahora; los préstamos ya desembolsados conservan sus fechas.</p>
-    <div class="field"><label>Días en que se cobra</label><div class="chips" role="group" aria-label="Días de cobro" style="flex-wrap:wrap">${[1,2,3,4,5,6,0].map(n=>`<button type="button" class="chip" data-cfdia="${n}" aria-pressed="${String(c.diasCobro).split(',').includes(String(n))}">${DIAS_NOMBRE[n]}</button>`).join('')}</div>
-      <input type="hidden" data-cf="diasCobro" value="${esc(c.diasCobro)}"><span class="small muted" id="cfDiasTxt">Cobro diario: ${esc(textoDias(String(c.diasCobro).split(',').map(Number)))} (${String(c.diasCobro).split(',').filter(Boolean).length*4} cuotas por mes).</span></div>
-    <div class="field"><label for="cf-exf">Días feriados</label><select id="cf-exf" data-cf="excluirFeriados"><option value="si" ${c.excluirFeriados!=='no'?'selected':''}>No cobrar en feriados</option><option value="no" ${c.excluirFeriados==='no'?'selected':''}>Cobrar también en feriados</option></select><span class="small muted">Si una cuota cae en un día sin cobro o feriado, pasa al siguiente día de cobro. En cobro diario, esos días se saltan.</span></div>
-    <div id="cfFeriados" ${c.excluirFeriados==='no'?'hidden':''} class="stack" style="gap:10px">
-      <div class="field"><label for="cf-ss">Semana Santa</label><select id="cf-ss" data-cf="semanaSanta"><option value="si" ${c.semanaSanta!=='no'?'selected':''}>Excluir Jueves y Viernes Santo</option><option value="no" ${c.semanaSanta==='no'?'selected':''}>Cobrar en Semana Santa</option></select><span class="small muted">Las fechas de Semana Santa se calculan solas cada año.</span></div>
-      <div class="field"><label for="cf-fer">Lista de feriados</label><textarea id="cf-fer" data-cf="feriados" rows="8" style="font-family:ui-monospace,monospace;font-size:.85rem">${esc(c.feriados)}</textarea>
-        <span class="small muted">Una fecha por línea: <b>MM-DD Nombre</b> para todos los años (ej. <i>08-01 Santo Domingo</i>) o <b>AAAA-MM-DD Nombre</b> para una sola vez.</span></div>
-      <div class="small" id="cfProxFer"></div>
+    
     </div>
-    <h3 style="margin-top:6px">Represtamos</h3>
+    <div class="aj-panel stack" data-ajpanel="creditos" role="tabpanel" ${ui.ajTab==='creditos'?'':'hidden'}><h3 style="margin-top:6px">Represtamos</h3>
     <p class="small muted" style="margin:0">Un cliente con préstamo activo solo puede recibir un represtamo si cumple estas condiciones.</p>
     <div class="fgrid">
       <div class="field"><label for="cf-rp">Cuotas pagadas mínimas (%)</label><input id="cf-rp" data-cf="represtamoMinPct" inputmode="numeric" value="${esc(c.represtamoMinPct)}"></div>
@@ -1123,9 +1116,31 @@ VIEWS.ajustes=()=>{
       <div class="field full"><label for="cf-cd">Número de cuotas</label><select id="cf-cd" data-cf="cuotasDiferenciadas"><option value="no" ${c.cuotasDiferenciadas!=='si'?'selected':''}>Calculado según el plazo (recomendado)</option><option value="si" ${c.cuotasDiferenciadas==='si'?'selected':''}>Permitir cuotas diferenciadas</option></select>
         <span class="small muted">Con cuotas diferenciadas, el número sugerido se puede cambiar en el simulador y al aprobar una solicitud (solo quien tiene permiso de aprobar).</span></div>
     </div>
+
+    </div>
+    <div class="aj-panel stack" data-ajpanel="calendario" role="tabpanel" ${ui.ajTab==='calendario'?'':'hidden'}>
+    <p class="small muted" style="margin:0">Se aplica a los planes de pago que se generen desde ahora; los préstamos ya desembolsados conservan sus fechas.</p>
+    <div class="field"><label>Días en que se cobra</label><div class="chips" role="group" aria-label="Días de cobro" style="flex-wrap:wrap">${[1,2,3,4,5,6,0].map(n=>`<button type="button" class="chip" data-cfdia="${n}" aria-pressed="${String(c.diasCobro).split(',').includes(String(n))}">${DIAS_NOMBRE[n]}</button>`).join('')}</div>
+      <input type="hidden" data-cf="diasCobro" value="${esc(c.diasCobro)}"><span class="small muted" id="cfDiasTxt">Cobro diario: ${esc(textoDias(String(c.diasCobro).split(',').map(Number)))} (${String(c.diasCobro).split(',').filter(Boolean).length*4} cuotas por mes).</span></div>
+    <div class="field"><label for="cf-exf">Días feriados</label><select id="cf-exf" data-cf="excluirFeriados"><option value="si" ${c.excluirFeriados!=='no'?'selected':''}>No cobrar en feriados</option><option value="no" ${c.excluirFeriados==='no'?'selected':''}>Cobrar también en feriados</option></select><span class="small muted">Si una cuota cae en un día sin cobro o feriado, pasa al siguiente día de cobro. En cobro diario, esos días se saltan.</span></div>
+    <div id="cfFeriados" ${c.excluirFeriados==='no'?'hidden':''} class="stack" style="gap:10px">
+      <div class="field"><label for="cf-ss">Semana Santa</label><select id="cf-ss" data-cf="semanaSanta"><option value="si" ${c.semanaSanta!=='no'?'selected':''}>Excluir Jueves y Viernes Santo</option><option value="no" ${c.semanaSanta==='no'?'selected':''}>Cobrar en Semana Santa</option></select><span class="small muted">Las fechas de Semana Santa se calculan solas cada año.</span></div>
+      <div class="field"><label for="cf-fer">Lista de feriados</label><textarea id="cf-fer" data-cf="feriados" rows="8" style="font-family:ui-monospace,monospace;font-size:.85rem">${esc(c.feriados)}</textarea>
+        <span class="small muted">Una fecha por línea: <b>MM-DD Nombre</b> para todos los años (ej. <i>08-01 Santo Domingo</i>) o <b>AAAA-MM-DD Nombre</b> para una sola vez.</span></div>
+      <div class="small" id="cfProxFer"></div>
+    </div>
+    
+    </div>
+    <div class="aj-panel stack" data-ajpanel="herramientas" role="tabpanel" ${ui.ajTab==='herramientas'?'':'hidden'}>
+    <div class="field"><label for="cf-sync">Sincronización con otros usuarios</label><div class="row" style="flex-wrap:nowrap;gap:8px"><input id="cf-sync" data-cf="intervaloSync" type="number" min="30" max="60" step="1" inputmode="numeric" value="${esc(c.intervaloSync||30)}" style="max-width:110px"><span class="small">segundos</span></div>
+      <span class="small muted">Entre <b>30 y 60 segundos</b>. Menos segundos = los cambios de los demás se ven antes; más segundos = menos carga para el servidor (útil con muchos usuarios conectados a la vez).</span></div>
+    <div class="field"><label for="cf-diag">Diagnóstico de préstamos</label><select id="cf-diag" data-cf="mostrarDiagnostico"><option value="no" ${c.mostrarDiagnostico!=='si'?'selected':''}>Ocultar el botón Diagnóstico</option><option value="si" ${c.mostrarDiagnostico==='si'?'selected':''}>Mostrar el botón Diagnóstico</option></select>
+      <span class="small muted">Compara lo que hay en la hoja de cálculo con lo que muestra la app para un préstamo. Actívalo solo cuando necesites revisar un caso; lo ven quienes tienen permiso de ver la auditoría.</span></div>
+    
+    </div>
     <button class="btn primary" data-savecfg style="padding:13px">Guardar ajustes</button>
   </section>
-  <section class="stack"><h3>Vista previa</h3><div class="rc-preview" id="cfPrev">${previewAjustes(c)}</div></section>
+  <section class="stack" id="cfPrevBox" ${ui.ajTab==='recibo'?'':'hidden'}><h3>Vista previa</h3><div class="rc-preview" id="cfPrev">${previewAjustes(c)}</div></section>
   </div>`;
 };
 function leerImagen(file,max){
@@ -1157,7 +1172,9 @@ function cambiosAjustes(){
     const antes=k==='feriados'?String(CONFIG[k]??'').replace(/\r/g,'').trim():String(CONFIG[k]??'').trim();if(v!==antes)o[k]=v});
   return o;
 }
-function marcarAjustes(){const b=$('[data-savecfg]');if(!b)return;const n=Object.keys(cambiosAjustes()).length;b.disabled=!n;b.textContent=n?`Guardar ${n} ${n===1?'cambio':'cambios'}`:'Sin cambios'}
+function marcarAjustes(){
+  const cam=cambiosAjustes();$$('[data-ajcnt]').forEach(el=>{const p=$(`[data-ajpanel="${el.dataset.ajcnt}"]`);const n=p?[...p.querySelectorAll('[data-cf]')].filter(i=>i.dataset.cf in cam).length:0;el.textContent=n?' · '+n:''});
+  const b=$('[data-savecfg]');if(!b)return;const n=Object.keys(cambiosAjustes()).length;b.disabled=!n;b.textContent=n?`Guardar ${n} ${n===1?'cambio':'cambios'}`:'Sin cambios'}
 async function guardarAjustes(){
   const o=cambiosAjustes(),n=Object.keys(o).length;if(!n){toast('No hay cambios por guardar');return}
   const b=$('[data-savecfg]');if(b){b.disabled=true;b.textContent='Guardando…'}
@@ -3086,6 +3103,8 @@ document.addEventListener('click',e=>{
   else if(d.resetpw)modalReset(d.resetpw);
   else if(d.confirmreset){const id=d.confirmreset,pw=$('#r-pass').value;closeModal();llamar('restablecerClave',[id,pw],null,{force:true}).then(r=>{if(r)openModal(`<h2>Contraseña restablecida</h2><div class="receipt"><div class="ln"><span>Usuario</span><b>${esc(id)}</b></div><div class="ln"><span>Contraseña temporal</span><b>${esc(pw)}</b></div></div><button class="btn primary" data-close style="width:100%;padding:12px;margin-top:12px">Listo</button>`)})}
   else if('salir' in d)salir();
+  else if(d.ajtab){ui.ajTab=d.ajtab;$$('[data-ajtab]').forEach(b=>{const on=b.dataset.ajtab===d.ajtab;b.setAttribute('aria-pressed',on);b.setAttribute('aria-selected',on)});
+    $$('[data-ajpanel]').forEach(p=>p.hidden=p.dataset.ajpanel!==d.ajtab);const pv=$('#cfPrevBox');if(pv)pv.hidden=d.ajtab!=='recibo'}
   else if(d.cffrec){const h=$('[data-cf="frecuenciasActivas"]');let l=h.value.split(',').filter(Boolean);l=l.includes(d.cffrec)?l.filter(x=>x!==d.cffrec):[...l,d.cffrec];
     if(!l.length){toast('Debe quedar al menos una frecuencia');return}h.value=MOD_ORDEN.filter(m=>l.includes(m)).join(',');t.setAttribute('aria-pressed',l.includes(d.cffrec));marcarAjustes()}
   else if('avisos' in d){modalAvisos()}
